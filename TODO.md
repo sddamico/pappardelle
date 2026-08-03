@@ -5,8 +5,8 @@ Work through each item below. Check off items as you complete them by changing `
 ## Setup
 
 - [x] Read and understand the issue description (Read Linear issue `pappardelle-1dg` via `bd show` and PR #5. Original prompt: "test session, investigate blinking cursor in tmux on ghostty". User clarified mid-session: not blinking — **flickering while typing**, and confirmed it is in **pappardelle's own TUI**, with scope = fix it in pappardelle.)
-- [ ] Update the issue title if the auto-generated one isn't ideal (deferred until root cause is known — the current title says "blinking cursor", which is now known to be the wrong symptom)
-- [ ] Update the issue description with implementation details
+- [x] Update the issue title if the auto-generated one isn't ideal (Retitled to "Pappardelle TUI flickers while typing: tmux never batches repaints because nested clients advertise no Sync". The auto-generated title said "blinking cursor", which the investigation disproved.)
+- [x] Update the issue description with implementation details (Rewrote with root cause, the two disproved hypotheses, the A/B measurement, and the fix; kept the "Original prompt" block at the bottom.)
 
 ## Research & Planning
 
@@ -29,9 +29,9 @@ Work through each item below. Check off items as you complete them by changing `
 
 ## Wrap Up
 
-- [ ] Commit and push changes
-- [ ] Update the PR title and body with summary and test plan
-- [ ] Update issue state to "In Review"
+- [x] Commit and push changes (Committed as `4eaaf5f`, rebased onto the remote's placeholder commit `7f45a77`, pushed to `origin/pappardelle-1dg`.)
+- [x] Update the PR title and body with summary and test plan (PR #5 retitled and rewritten with the root cause, the A/B measurement table, the test plan, the pre-existing failures, and the not-visually-verified caveat. "Original prompt" block preserved.)
+- [x] Update issue state to "In Review" (This beads workspace has no `in_review` status — built-ins are open / in_progress / blocked / deferred / closed / pinned / hooked — so the issue is set to `in_progress` with PR #5 open for review. Left open deliberately: the fix is verified mechanically but not visually.)
 
 ---
 

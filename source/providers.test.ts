@@ -38,6 +38,39 @@ test.serial(
 	},
 );
 
+test.serial('createIssueTracker returns BeadsProvider for beads config', t => {
+	const provider = createIssueTracker({provider: 'beads'});
+	t.is(provider.name, 'beads');
+});
+
+test.serial('createIssueTracker needs no base_url for beads', t => {
+	// Beads is local — there is no host to point at.
+	t.notThrows(() => createIssueTracker({provider: 'beads'}));
+});
+
+test.serial(
+	'createIssueTracker throws when re-initialized from beads to jira',
+	t => {
+		createIssueTracker({provider: 'beads'});
+		t.throws(
+			() =>
+				createIssueTracker({
+					provider: 'jira',
+					base_url: 'https://example.com',
+				}),
+			{message: /already initialized as "beads"/},
+		);
+	},
+);
+
+test.serial(
+	'createIssueTracker with no config returns existing Beads singleton',
+	t => {
+		const beads = createIssueTracker({provider: 'beads'});
+		t.is(createIssueTracker(), beads);
+	},
+);
+
 test.serial('createIssueTracker throws for jira without base_url', t => {
 	t.throws(() => createIssueTracker({provider: 'jira'}), {
 		message: /base_url is required/,

@@ -93,6 +93,14 @@ export interface IssueTrackerProvider {
 	/** Build the web URL for an issue */
 	buildIssueUrl(issueKey: string): string;
 
+	/**
+	 * Show the issue to the user in place, for trackers whose issues have no
+	 * web page (beads is local-only). Providers that can produce a URL leave
+	 * this undefined and the caller falls back to `buildIssueUrl` + `open`.
+	 * Returns false when the issue could not be displayed.
+	 */
+	openIssue?(issueKey: string): boolean;
+
 	/** Post a comment on an issue */
 	createComment(issueKey: string, body: string): Promise<boolean>;
 
@@ -101,6 +109,15 @@ export interface IssueTrackerProvider {
 		assignee: string | undefined,
 		statuses: string[],
 	): Promise<TrackerIssue[]>;
+
+	/**
+	 * Unblocked, unstarted work the user could pick up right now, offered as
+	 * suggestions in the new-session prompt. Only trackers that can answer this
+	 * cheaply and locally implement it — a remote round-trip on every keystroke-
+	 * free dialog open is not worth the latency — so callers must treat an
+	 * undefined method as "no suggestions" rather than an error.
+	 */
+	listReadyIssues?(): Promise<TrackerIssue[]>;
 }
 
 /**

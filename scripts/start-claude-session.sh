@@ -79,8 +79,16 @@ if [[ -z "$WORKTREE_PATH" ]]; then
     exit 1
 fi
 
-CLAUDE_SESSION="claude-${REPO_NAME}-${ISSUE_KEY}"
-COMPANION_SESSION="companion-${REPO_NAME}-${ISSUE_KEY}"
+# tmux rewrites '.' to '_' in session names ('.' separates window from pane in
+# a target specifier), so a beads child ID like bd-a3f8e9.1 would create a
+# session that `has-session -t` could never find again. Encode it up front, the
+# same way getSessionNames() does in pappardelle/source/tmux.ts.
+# A literal '_' is doubled first so the encoding stays reversible — a beads
+# prefix defaults to the repo directory name, so my_service-a1b2 is a valid ID.
+SESSION_KEY="${ISSUE_KEY//_/__}"
+SESSION_KEY="${SESSION_KEY//./_}"
+CLAUDE_SESSION="claude-${REPO_NAME}-${SESSION_KEY}"
+COMPANION_SESSION="companion-${REPO_NAME}-${SESSION_KEY}"
 
 # Per-issue claude/companion sessions live on a dedicated tmux socket so the
 # nested viewer pane in Pappardelle can attach without `TMUX=` (which would

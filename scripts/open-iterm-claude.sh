@@ -88,8 +88,11 @@ if [[ -z "$REPO_NAME" ]]; then
     exit 1
 fi
 
-# Create the tmux session name based on repo and issue key
-TMUX_SESSION="claude-${REPO_NAME}-${ISSUE_KEY}"
+# Create the tmux session name based on repo and issue key. The '.' → '_'
+# encoding matches start-claude-session.sh — see the comment there.
+SESSION_KEY="${ISSUE_KEY//_/__}"
+SESSION_KEY="${SESSION_KEY//./_}"
+TMUX_SESSION="claude-${REPO_NAME}-${SESSION_KEY}"
 
 # Per-issue claude/companion sessions live on a dedicated tmux socket so the
 # nested viewer pane in Pappardelle can attach without `TMUX=`. See STA-860.

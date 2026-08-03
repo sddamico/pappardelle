@@ -17,8 +17,9 @@ This skill must satisfy **every** item below before printing the final summary. 
 3. **`.pappardelle.local.yml` exists if local overrides were chosen.** Only when Step 1 collected per-machine overrides (default profile, yolo mode, etc.).
 4. **Pappardelle CLI is installed.** `command -v pappardelle` succeeds.
 5. **Required prerequisites are installed.** `node`, `npm`, `git`, `tmux`, `jq`, `yq`, `claude` are all on PATH.
-6. **Provider CLIs are checked.** `gh` or `glab` for VCS, `linctl` or `acli` for tracker, plus `gitui` (the default companion-pane command — skip if the user set `companion_command` to something else). Warn about missing ones but do not block on them.
+6. **Provider CLIs are checked.** `gh` or `glab` for VCS, `linctl`, `acli` or `bd` for tracker, plus `gitui` (the default companion-pane command — skip if the user set `companion_command` to something else). Warn about missing ones but do not block on them.
 7. **Recommended `~/.tmux.conf` settings are in place** or the user has explicitly declined them.
+8. **Terminal capability passthrough is configured** — offered and accepted, declined, or skipped because the terminal or tmux version does not support it. Never skip the detection itself.
 
 If the user interrupts mid-flow, that's their call — but never _you_ deciding the work is done before the checklist is complete. The friend who triggered this skill once with `.pappardelle.yml` already in the repo had to write **three follow-up prompts** to get prerequisites, the Pappardelle CLI, and tmux config installed — that's the failure mode this checklist exists to prevent.
 
@@ -29,7 +30,7 @@ Before any other output, print the "What is a Workspace?" section verbatim so th
 A **workspace** in Pappardelle is the per-issue environment Pappardelle creates for you when you start work on a ticket. Each workspace bundles together:
 
 - A dedicated **git worktree** at `~/.worktrees/{repo}/{issue-key}/` — an isolated checkout on a fresh branch, so you can have many in-flight tickets without stashing or switching branches.
-- A tracked **issue** in your issue tracker (Linear or Jira) — Pappardelle either creates one from your prompt or uses an existing key like `STA-123`.
+- A tracked **issue** in your issue tracker (Linear, Jira or beads) — Pappardelle either creates one from your prompt or uses an existing key like `STA-123` (or `myproj-a1b2` on beads).
 - A draft **PR/MR** against the main branch for that worktree.
 - Its own **Claude Code session** (a named tmux session: `claude-{repo}-{issue-key}`) where you drive the work.
 - Its own **companion session** (tmux session: `companion-{repo}-{issue-key}`) pointed at that worktree, running the `companion_command` (gitui by default).
@@ -75,7 +76,8 @@ Options:
 
 - **Linear** (default) — requires `linctl` CLI
 - **Jira** — requires `acli` CLI. If selected, follow up asking for their Jira base URL (e.g., `https://mycompany.atlassian.net`).
-- **Neither / Other** — Pappardelle requires Linear or Jira. Let the user know and stop.
+- **Beads** — requires the `bd` CLI and a `.beads` database in the repo (`bd init <prefix>`). Local and git-native, so there is no base URL to ask for. Use the database's issue prefix as the team prefix in the next step.
+- **Neither / Other** — Pappardelle requires Linear, Jira or beads. Let the user know and stop.
 
 #### 1A.iii. Team Prefix & Profiles
 
@@ -97,7 +99,7 @@ Ask: "What are your issue key prefixes? For example, if your issues look like PR
   - `team_prefix`: set per-profile to override the global prefix for issue creation
   - `commands`: reasonable setup commands based on project type (e.g., `npm install` for Node.js, `xcodegen generate` for iOS)
   - `emoji`: optional — suggest one via `/configure-pappardelle`'s emoji flow. With 3+ profiles, offer to bulk-assign now.
-  - `tracker_projects`: the tracker project(s) this profile lives in — Linear project names, or Jira project names/keys (either matches, STA-1649). Routes existing issues to the profile; on Linear the first entry also doubles as the default project for issues created under this profile (STA-959). Defer to `/configure-pappardelle` if the user doesn't already know their project names.
+  - `tracker_projects`: the tracker project(s) this profile lives in — Linear project names, Jira project names/keys (either matches, STA-1649), or beads ID prefixes. Routes existing issues to the profile; on Linear the first entry also doubles as the default project for issues created under this profile (STA-959). Defer to `/configure-pappardelle` if the user doesn't already know their project names.
 - Set `default_profile` to the most common one
 
 #### 1A.iv. Claude Initialization Command
@@ -233,13 +235,15 @@ echo "=== Provider CLIs ===" && \
 for cmd in <VCS_CLI> <TRACKER_CLI> gitui; do printf "%-10s %s\n" "$cmd" "$(command -v $cmd >/dev/null 2>&1 && echo '✓' || echo '✗ MISSING')"; done
 ```
 
-Replace `<VCS_CLI>` with `gh` (GitHub) or `glab` (GitLab), and `<TRACKER_CLI>` with `linctl` (Linear) or `acli` (Jira). `gitui` is the default companion-pane command — if `.pappardelle.yml` sets `companion_command` to a different tool, check that instead. When you took the existing-config path in Step 1B, read these values straight out of the parsed `.pappardelle.yml`.
+Replace `<VCS_CLI>` with `gh` (GitHub) or `glab` (GitLab), and `<TRACKER_CLI>` with `linctl` (Linear), `acli` (Jira) or `bd` (Beads). `gitui` is the default companion-pane command — if `.pappardelle.yml` sets `companion_command` to a different tool, check that instead. When you took the existing-config path in Step 1B, read these values straight out of the parsed `.pappardelle.yml`.
 
 - If any **required** tools are missing, **stop and do not proceed** to Step 4. Tell the user which ones are missing and offer to install them via `brew install <tool>` (or the appropriate install command for Claude Code: `curl -fsSL https://claude.ai/install.sh | bash`). Use `AskUserQuestion` to confirm before installing. Re-run the check after installation and only proceed once all required tools pass.
 - If any **provider CLIs** are missing, warn the user but allow proceeding — Pappardelle will work but some features will be degraded.
 - If all tools are present, move on.
 
 ## Step 4: tmux Configuration
+
+### 4.i. Base Config
 
 Ask: "Would you like me to add the recommended tmux config? It enables mouse support, pane navigation with Ctrl+Shift+arrow keys, and a clean status bar. (I'll append to ~/.tmux.conf)"
 
@@ -253,6 +257,82 @@ Check if `~/.tmux.conf` exists first and read it — if settings already exist, 
 
 If they decline, record that and move on — declining counts as the step being done; do not re-prompt later.
 
+### 4.ii. Terminal Capability Passthrough (conditional)
+
+tmux sets no terminal capabilities by default. Two consequences hurt Pappardelle specifically, since its whole UI is full-screen TUIs (the Pappardelle list pane, Claude Code, gitui) repainting inside tmux:
+
+- **No synchronized output.** Terminals like Ghostty support DECSET 2026 — an app brackets a repaint so the terminal presents it as one frame. tmux only forwards that to the outer terminal when the `sync` terminal feature is enabled, so without it every partial repaint hits the screen directly. That is the flicker/tearing users report while Claude streams output.
+- **`default-terminal` is unset**, so tmux advertises `screen` to inner apps — no truecolor, no italics, and a capability set weak enough that TUIs fall back to coarse full-screen redraws.
+
+These settings are **only correct when the outer terminal actually supports them**, so detect before writing. Run this check:
+
+```bash
+# Inside tmux, $TERM is what tmux advertises to inner apps, not the real terminal
+if [ -n "$TMUX" ]; then outer=$(tmux display -p '#{client_termname}'); else outer="$TERM"; fi
+
+sync_ok=no
+if infocmp -x "$outer" 2>/dev/null | grep -q 'Sync='; then
+  sync_ok=yes
+else
+  # Some terminfo entries shipped by the OS lag the terminal's real support
+  case "$outer" in
+    *ghostty*|*kitty*|*wezterm*|foot*|*alacritty*|contour*|rio*) sync_ok=yes ;;
+  esac
+fi
+
+rgb_ok=no
+if infocmp -x "$outer" 2>/dev/null | grep -qE '\b(Tc|RGB)\b'; then
+  rgb_ok=yes
+elif [ "$COLORTERM" = truecolor ] || [ "$COLORTERM" = 24bit ]; then
+  rgb_ok=yes
+fi
+
+ver=$(tmux -V | sed 's/[^0-9.]//g')
+[ "$(printf '%s\n3.2\n' "$ver" | sort -V | head -1)" = "3.2" ] && tmux_ok=yes || tmux_ok=no
+infocmp tmux-256color >/dev/null 2>&1 && ti_ok=yes || ti_ok=no
+infocmp -x "$outer" 2>/dev/null | grep -q 'Smulx=' && usstyle_ok=yes || usstyle_ok=no
+
+printf 'TERM=%s tmux>=3.2=%s(%s) sync=%s rgb=%s tmux-256color=%s usstyle=%s\n' \
+  "$outer" "$tmux_ok" "$ver" "$sync_ok" "$rgb_ok" "$ti_ok" "$usstyle_ok"
+```
+
+Interpret the result:
+
+- **`tmux_ok=no`** — the `sync` terminal feature needs tmux >= 3.2. Skip this whole sub-step and tell the user upgrading tmux (`brew install tmux`) would fix TUI flicker.
+- **`sync_ok=no` and `rgb_ok=no`** — the terminal genuinely does not support these. Skip silently; adding the settings would be wrong.
+- **Otherwise** — offer the block. Ask: "Your terminal ({outer}) supports synchronized output and truecolor. Want me to add the tmux settings that pass those through? Without them, full-screen TUIs like Claude Code visibly flicker and tear while repainting inside tmux."
+
+If they accept, prepend to `~/.tmux.conf` (order does not matter, but keeping it above the Pappardelle block reads better). Include only the lines the detection supports — drop `*:RGB` if `rgb_ok=no`, drop `*:sync` if `sync_ok=no`, drop the `usstyle` line if `usstyle_ok=no`, and drop `default-terminal` if `ti_ok=no` (use `screen-256color` instead, or leave it out):
+
+```tmux
+# Advertise a real terminfo to inner apps — the default (`screen`) costs
+# truecolor and italics, and pushes TUIs toward full-screen redraws
+set -g default-terminal "tmux-256color"
+
+# Forward the outer terminal's synchronized-update (DECSET 2026) and truecolor
+# support so TUI repaints land as one frame instead of tearing mid-update
+set -ga terminal-features "*:RGB"
+set -ga terminal-features "*:sync"
+
+# Styled/colored underlines and OSC 8 hyperlinks, when the terminal has them
+set -ga terminal-features "<TERM>:usstyle:hyperlinks"
+
+# The 500ms default makes Esc-heavy apps (nvim) feel laggy
+set -sg escape-time 10
+```
+
+Replace `<TERM>` with the detected `outer` value (e.g. `xterm-ghostty`).
+
+**Gotcha:** `terminal-features` is an array option and `set -ga` appends a new **comma**-separated element. Features within one entry must be joined with `:` — writing `"xterm-ghostty:usstyle,hyperlinks"` silently produces two entries, the second a bare `hyperlinks` with no TERM pattern, which does nothing.
+
+Then tell the user the settings need a **new tmux server** to take effect — `default-terminal` applies only to new sessions and the client-side features resolve at attach time. Do **not** run `tmux kill-server` yourself; it would kill any session they are attached to, possibly the one running this skill. Tell them to run it when convenient, then verify:
+
+```bash
+tmux display -p '#{client_termfeatures}'   # should list sync and RGB
+```
+
+If they decline, record it and move on — do not re-prompt.
+
 ## Step 5: Summary
 
 Only run this step after every item in the **Setup Checklist** at the top is verified. The goal is to leave the user with (a) exactly what was written where, (b) a concrete next command to run, and (c) a heads-up of what creating their first workspace will actually do.
@@ -263,7 +343,7 @@ Format it like this, filling in the real values from what you just collected:
 ✅ Pappardelle is configured.
 
 Wrote /path/to/repo/.pappardelle.yml:
-  • Issue tracker: {linear | jira (<base_url>)}
+  • Issue tracker: {linear | jira (<base_url>) | beads}
   • VCS host:      {github | gitlab (<host>)}
   • Team prefix:   {PROJ}
   • Profiles:      {default} (or list each one with its keywords)
@@ -280,6 +360,7 @@ Verified:
   • Required prerequisites:     ✓ (node, npm, git, tmux, jq, yq, claude)
   • Provider CLIs:              {✓ all present | ⚠ missing: <list> — degraded features}
   • tmux config:                {✓ appended | ✓ already present | — user declined}
+  • Terminal passthrough:       {✓ added (sync, RGB) — restart tmux server to apply | ✓ already present | — user declined | — not supported by <TERM>}
 
 Next steps:
   1. Launch the TUI:            pappardelle

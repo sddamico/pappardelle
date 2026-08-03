@@ -360,13 +360,25 @@ if [[ "$INPUT" =~ ^https://linear\.app/.*/issue/([A-Z][A-Z0-9]*-[0-9]+) ]]; then
     # Linear URL
     ISSUE_KEY="${BASH_REMATCH[1]}"
     log "Detected Linear URL, issue key: $ISSUE_KEY"
+elif [[ "$TRACKER_PROVIDER" == "beads" && "$INPUT" =~ ^[a-zA-Z][a-zA-Z0-9]*(-[a-zA-Z0-9]+)+(\.[0-9]+){0,3}$ ]]; then
+    # Beads ID (e.g. bd-a1b2, bd-a3f8e9.1). Kept verbatim — beads IDs are
+    # lowercase by construction and uppercasing one yields an ID bd can't
+    # resolve plus a worktree named unlike its issue.
+    ISSUE_KEY="$INPUT"
+    log "Detected beads issue ID: $ISSUE_KEY"
 elif [[ "$INPUT" =~ ^[A-Z][A-Z0-9]*-[0-9]+$ ]]; then
     # Full issue key (e.g., STA-123)
     ISSUE_KEY="$INPUT"
     log "Detected full issue key: $ISSUE_KEY"
 elif [[ "$INPUT" =~ ^[0-9]+$ ]]; then
     # Just a number (e.g., 123) - use configured team prefix
-    ISSUE_KEY="${TEAM_PREFIX}-$INPUT"
+    if [[ "$TRACKER_PROVIDER" == "beads" ]]; then
+        # Only resolves in databases old enough to have sequential IDs; beads
+        # prefixes are lowercase either way.
+        ISSUE_KEY="$(echo "$TEAM_PREFIX" | tr '[:upper:]' '[:lower:]')-$INPUT"
+    else
+        ISSUE_KEY="${TEAM_PREFIX}-$INPUT"
+    fi
     log "Detected number, assuming issue key: $ISSUE_KEY"
 else
     # It's a description - we'll create a new issue
@@ -529,8 +541,16 @@ else
     fi
 fi
 
-# Extract issue number for template variable expansion (e.g., STA-595 → 595)
-ISSUE_NUMBER=$(echo "$ISSUE_KEY" | grep -oE '[0-9]+' || echo "")
+# Extract issue number for template variable expansion (e.g., STA-595 → 595).
+# Beads IDs have no number — the suffix is a content hash, and grep -oE would
+# return one line per digit run ("bd-a1b2" → "1\n2"), poisoning every template
+# that interpolates ${ISSUE_NUMBER}. Leave it empty instead; `if_set` already
+# skips links and commands that depend on it.
+if [[ "$TRACKER_PROVIDER" == "beads" ]]; then
+    ISSUE_NUMBER=""
+else
+    ISSUE_NUMBER=$(echo "$ISSUE_KEY" | grep -oE '[0-9]+' | head -1 || echo "")
+fi
 
 # Template expansion helpers for profile-driven steps
 # Defined here (before Step 5) because worktree config may use template variables.
@@ -713,7 +733,11 @@ fi
 if [[ "$SKIP_PERMISSIONS" == "true" ]]; then
     CLAUDE_SESSION_ARGS+=(--skip-permissions)
 fi
-CLAUDE_SESSION_NAME="claude-${REPO_NAME}-${ISSUE_KEY}"
+# Matches the '.' → '_' encoding in start-claude-session.sh and
+# getSessionNames() — see the comment there.
+SESSION_KEY="${ISSUE_KEY//_/__}"
+SESSION_KEY="${SESSION_KEY//./_}"
+CLAUDE_SESSION_NAME="claude-${REPO_NAME}-${SESSION_KEY}"
 # Per-issue claude/companion sessions live on a dedicated tmux socket so the
 # Pappardelle viewer pane can attach without TMUX=. See STA-860.
 PAPPARDELLE_TMUX_SOCKET="${PAPPARDELLE_TMUX_SOCKET:-pappardelle_inner}"

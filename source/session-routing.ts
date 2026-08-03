@@ -133,9 +133,16 @@ export function isPendingSessionResolved(
  * known until idow creates it. idow prints "Workspace STA-XXX is ready!" on
  * completion, so we parse that to register the space in the registry.
  *
- * Returns the issue key (e.g. "STA-633") or null if not found.
+ * The key shape has to cover both tracker families: Linear/Jira mint uppercase
+ * keys with a numeric suffix (STA-633), while beads mints a lowercase prefix
+ * with an alphanumeric suffix (pappardelle-osc). Matching only the former left
+ * beads workspaces unregistered, so the TUI's pending row never resolved.
+ *
+ * Returns the issue key (e.g. "STA-633" or "pappardelle-osc"), or null.
  */
 export function extractIssueKeyFromIdowOutput(stdout: string): string | null {
-	const match = stdout.match(/Workspace ([A-Z][A-Z0-9]*-\d+) is ready/);
+	const match = stdout.match(
+		/Workspace ([A-Za-z][A-Za-z0-9_]*-[A-Za-z0-9]+) is ready/,
+	);
 	return match ? match[1]! : null;
 }

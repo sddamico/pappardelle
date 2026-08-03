@@ -246,6 +246,25 @@ test('extracts issue key with non-STA prefix', t => {
 	t.is(extractIssueKeyFromIdowOutput(stdout), 'ENG-42');
 });
 
+// beads mints lowercase prefixes with an alphanumeric suffix rather than the
+// uppercase/numeric shape Linear and Jira use. Failing to match these left the
+// space unregistered and hung the TUI's pending row with no error.
+test('extracts beads-shaped issue key', t => {
+	t.is(
+		extractIssueKeyFromIdowOutput('Workspace pappardelle-osc is ready!\n'),
+		'pappardelle-osc',
+	);
+	t.is(
+		extractIssueKeyFromIdowOutput('Workspace myproj-a1b2 is ready!\n'),
+		'myproj-a1b2',
+	);
+});
+
+test('extracts beads key wrapped in ANSI color codes', t => {
+	const stdout = '[0;32mWorkspace pappardelle-osc is ready![0m\n';
+	t.is(extractIssueKeyFromIdowOutput(stdout), 'pappardelle-osc');
+});
+
 test('returns null when idow output has no workspace line', t => {
 	t.is(extractIssueKeyFromIdowOutput(''), null);
 	t.is(extractIssueKeyFromIdowOutput('some random output'), null);

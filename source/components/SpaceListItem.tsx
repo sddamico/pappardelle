@@ -6,15 +6,25 @@ import {CLAUDE_STATUS_DISPLAY, COLORS} from '../types.ts';
 import {getMainWorktreeColor} from '../git-status.ts';
 import {getWorkflowStateColor} from '../tracker.ts';
 import {shouldShowLoadingTitle} from '../space-utils.ts';
-import {railPrefixWidth, rowPrefixWidth} from '../list-view-sizing.ts';
+import {
+	railPrefixWidth,
+	rowPrefixWidth,
+	twoLineTitleIndent,
+} from '../list-view-sizing.ts';
 import {inkRenderPad, railEmojiIsInkPadded} from '../emoji-rail-width.ts';
 import {truncateToWidth} from '../truncate-to-width.ts';
+import type {ListLayout} from '../config.ts';
 import ClaudeAnimation from './ClaudeAnimation.tsx';
 
 interface Props {
 	space: SpaceData;
 	isSelected: boolean;
 	width: number;
+	/**
+	 * `two_line` drops the title onto its own indented row beneath the key.
+	 * Callers that omit it get the historical single-row layout unchanged.
+	 */
+	layout?: ListLayout;
 }
 
 interface PipelineIconStyle {
@@ -33,7 +43,13 @@ const PIPELINE_SINGLE: Record<
 	progressing_clean: {color: 'yellow', icon: '◔'}, // ◔
 };
 
-export default function SpaceListItem({space, isSelected, width}: Props) {
+export default function SpaceListItem({
+	space,
+	isSelected,
+	width,
+	layout = 'single_line',
+}: Props) {
+	const isTwoLine = layout === 'two_line';
 	const baseStatusInfo = space.claudeStatus
 		? CLAUDE_STATUS_DISPLAY[space.claudeStatus]
 		: CLAUDE_STATUS_DISPLAY.unknown;
@@ -123,7 +139,15 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 		emojiPrefixCells +
 		(hasIssueKey ? 1 + 1 + issueKey.length + 1 : 1 + 1) +
 		prefixCells;
-	const availableTitleWidth = Math.max(0, width - fixedWidth);
+	// In two-line layout the title has a row to itself, so it is budgeted
+	// against the full width less the indent that aligns it under the issue
+	// key — the rail sits on the first line and costs the title nothing.
+	const twoLineIndent = twoLineTitleIndent(
+		emoji ? {emoji, width: emojiCells} : undefined,
+	);
+	const availableTitleWidth = isTwoLine
+		? Math.max(0, width - twoLineIndent)
+		: Math.max(0, width - fixedWidth);
 
 	// Truncate title (pending rows use their own title text)
 	// Show "Loading…" while the Linear issue title is being fetched
@@ -144,22 +168,33 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 	//      this the rail's flex spacer refills to the full width in Ink's model
 	//      and the terminal expansion pushes the rail icons onto the next line.
 	const prefixInkPad = emoji ? inkRenderPad(emoji) : 0;
+	// The emoji only shares a line with the title in single-line layout; in
+	// two-line layout its expansion can't eat into the title's own row.
+	const titlePrefixInkPad = isTwoLine ? 0 : prefixInkPad;
 	let truncatedTitle = truncateToWidth(
 		title,
-		availableTitleWidth - prefixInkPad,
+		availableTitleWidth - titlePrefixInkPad,
 	);
 	const firstTitleInkPad = inkRenderPad(truncatedTitle);
 	if (firstTitleInkPad > 0) {
 		truncatedTitle = truncateToWidth(
 			title,
-			availableTitleWidth - prefixInkPad - firstTitleInkPad,
+			availableTitleWidth - titlePrefixInkPad - firstTitleInkPad,
 		);
 	}
-	const rowInkPad = prefixInkPad + inkRenderPad(truncatedTitle);
+	const titleInkPad = inkRenderPad(truncatedTitle);
+	const rowInkPad = titlePrefixInkPad + titleInkPad;
 	// Width the row's outer Box is given. Equals `width` when nothing expands
 	// (byte-identical to master), otherwise `width − rowInkPad` so the terminal
 	// expansion fills the row exactly to the pane edge instead of past it.
 	const rowWidth = rowInkPad > 0 ? Math.max(0, width - rowInkPad) : undefined;
+	// Two-line layout splits that correction across its two rows: the key row
+	// carries the emoji (and the rail it has to stay clear of), the title row
+	// carries only the title.
+	const keyLineWidth =
+		prefixInkPad > 0 ? Math.max(0, width - prefixInkPad) : undefined;
+	const titleLineWidth =
+		titleInkPad > 0 ? Math.max(0, width - titleInkPad) : undefined;
 
 	// Linear state color (applied to issue key)
 	// Uses the exact color from Linear's API so pappardelle always matches
@@ -265,8 +300,19 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 		);
 	};
 
-	return (
-		<Box width={rowWidth}>
+	const renderTitle = () => (
+		<Text
+			dimColor={!useInverse}
+			wrap="truncate"
+			inverse={useInverse}
+			color={useSelectionInverse ? stateColor : textColor}
+		>
+			{truncatedTitle}
+		</Text>
+	);
+
+	const keyLine = (
+		<Box width={isTwoLine ? keyLineWidth : rowWidth}>
 			{/* Profile emoji (NOT highlighted) — first cell on the row when set.
 			    Followed by a single space separator so it doesn't crash into the
 			    Claude status icon. */}
@@ -319,8 +365,9 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 				</Text>
 			)}
 
-			{/* Space + title (only if there's a title to show) */}
-			{truncatedTitle.length > 0 && (
+			{/* Space + title (only if there's a title to show, and only when the
+			    title shares this row — two-line layout renders it below) */}
+			{!isTwoLine && truncatedTitle.length > 0 && (
 				<>
 					{hasIssueKey && (
 						<Text
@@ -331,14 +378,7 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 							{' '}
 						</Text>
 					)}
-					<Text
-						dimColor={!useInverse}
-						wrap="truncate"
-						inverse={useInverse}
-						color={useSelectionInverse ? stateColor : textColor}
-					>
-						{truncatedTitle}
-					</Text>
+					{renderTitle()}
 				</>
 			)}
 
@@ -353,6 +393,23 @@ export default function SpaceListItem({space, isSelected, width}: Props) {
 					{renderPipelineIcon()}
 				</Box>
 			) : null}
+		</Box>
+	);
+
+	if (!isTwoLine) return keyLine;
+
+	// The title row is always emitted, even when the title is empty, so every
+	// item occupies exactly two terminal rows — the scroll math and the
+	// mouse-click mapping both count on that being invariant.
+	return (
+		<Box flexDirection="column">
+			{keyLine}
+			<Box width={titleLineWidth}>
+				<Text inverse={useBlinkInverse} color={textColor}>
+					{' '.repeat(twoLineIndent)}
+				</Text>
+				{renderTitle()}
+			</Box>
 		</Box>
 	);
 }

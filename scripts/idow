@@ -708,6 +708,7 @@ else
         --title "$TITLE" \
         --worktree "$WORKTREE_PATH" \
         --config "$CONFIG_PATH" \
+        --issue-url "$ISSUE_URL" \
         --prompt "$DESCRIPTION") || {
         print_warning "Failed to create PR/MR"
         PR_URL=""

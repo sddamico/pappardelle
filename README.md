@@ -124,7 +124,7 @@ When you create a workspace, Pappardelle runs through these steps:
 
 3. **Git worktree** — An isolated worktree is created at `~/.worktrees/{repo-name}/{issue-key}/`. This is a full working copy of your repo on a new branch, completely isolated from your main checkout.
 
-4. **PR/MR creation** — A placeholder PR (GitHub) or MR (GitLab) is created from the new branch.
+4. **PR/MR creation** — A placeholder PR (GitHub) or MR (GitLab) is created from the new branch. Its body links back to the tracker issue — or, for beads, names the issue key, since beads issues live in a local database and have no web page.
 
 5. **Project setup** — Profile `commands` are executed (e.g., `xcodegen generate`, dependency installs). Top-level `post_workspace_init` commands also run after the worktree is created (e.g., copying `.env` files).
 

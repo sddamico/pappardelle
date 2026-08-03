@@ -2,11 +2,11 @@
 
 # create-github-pr.sh - Create a placeholder GitHub PR
 #
-# Usage: create-github-pr.sh --issue-key <STA-XXX> --title "<title>" --worktree <path> [--label <label>] [--prompt "<prompt>"]
+# Usage: create-github-pr.sh --issue-key <STA-XXX> --title "<title>" --worktree <path> --config <path> [--issue-url <url>] [--label <label>] [--prompt "<prompt>"]
 #
 # Creates a GitHub PR with:
 #   - Title: "[STA-XXX] <title>"
-#   - Placeholder body with original prompt
+#   - Placeholder body with the tracker issue reference and original prompt
 #   - Optional label
 #
 # Must be run after the worktree/branch has been created.
@@ -16,10 +16,16 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/provider-helpers.sh"
+
 # Parse arguments
 ISSUE_KEY=""
 TITLE=""
 WORKTREE=""
+CONFIG_PATH=""
+ISSUE_URL=""
 LABEL=""
 PROMPT=""
 
@@ -37,6 +43,14 @@ while [[ $# -gt 0 ]]; do
             WORKTREE="$2"
             shift 2
             ;;
+        --config)
+            CONFIG_PATH="$2"
+            shift 2
+            ;;
+        --issue-url)
+            ISSUE_URL="$2"
+            shift 2
+            ;;
         --label)
             LABEL="$2"
             shift 2
@@ -46,7 +60,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --help|-h)
-            echo "Usage: create-github-pr.sh --issue-key <STA-XXX> --title \"<title>\" --worktree <path> [--label <label>] [--prompt \"<prompt>\"]"
+            echo "Usage: create-github-pr.sh --issue-key <STA-XXX> --title \"<title>\" --worktree <path> --config <path> [--issue-url <url>] [--label <label>] [--prompt \"<prompt>\"]"
             echo ""
             echo "Creates a placeholder GitHub PR and outputs JSON with pr_url and pr_number."
             exit 0
@@ -70,6 +84,11 @@ fi
 
 if [[ -z "$WORKTREE" ]]; then
     echo "Error: --worktree is required" >&2
+    exit 1
+fi
+
+if [[ -z "$CONFIG_PATH" ]]; then
+    echo "Error: --config is required" >&2
     exit 1
 fi
 
@@ -105,11 +124,12 @@ PR_TITLE="[$ISSUE_KEY] $TITLE"
 # Convert prompt to blockquote by adding > to each line
 QUOTED_PROMPT=$(echo "$PROMPT" | sed 's/^/> /')
 
+ISSUE_SECTION=$(build_issue_section "$ISSUE_KEY" "$ISSUE_URL" "$CONFIG_PATH")
+
 # Build PR body with better formatting
 PR_BODY="👨‍🍳🍝 More details coming soon...
 
-## Linear Issue
-https://linear.app/stardust-labs/issue/$ISSUE_KEY
+$ISSUE_SECTION
 
 ---
 

@@ -168,6 +168,28 @@ extract_issue_url() {
     esac
 }
 
+# Render the tracker-issue section of a placeholder PR/MR body.
+# The heading names the configured tracker rather than assuming Linear, and
+# trackers with no web page (beads issues live in a local database) get the
+# bare issue key instead of a link that resolves to nothing.
+# Args: $1=issue_key, $2=issue_url, $3=config_path
+build_issue_section() {
+    local issue_key="$1"
+    local issue_url="$2"
+    local config_path="$3"
+    local provider heading
+    provider=$(get_issue_tracker_provider "$config_path")
+
+    case "$provider" in
+        linear) heading="Linear Issue" ;;
+        jira)   heading="Jira Issue" ;;
+        beads)  heading="Beads Issue" ;;
+        *)      heading="Issue" ;;
+    esac
+
+    printf '## %s\n%s' "$heading" "${issue_url:-$issue_key}"
+}
+
 # Extract the issue's tracker-project identifiers for profile matching.
 # Emits one candidate per line, most-specific display value first: Linear
 # projects have only a name; Jira issues carry a display name AND a project
@@ -414,10 +436,10 @@ $quoted_prompt"
 }
 
 # Create a PR/MR in the configured VCS host
-# Args: --issue-key <key> --title <title> --worktree <path> --config <config_path> [--label <label>] [--prompt <prompt>]
+# Args: --issue-key <key> --title <title> --worktree <path> --config <config_path> [--issue-url <url>] [--label <label>] [--prompt <prompt>]
 # Outputs: JSON with pr_url/mr_url
 create_pr() {
-    local issue_key="" title="" worktree="" config_path="" label="" prompt=""
+    local issue_key="" title="" worktree="" config_path="" label="" prompt="" issue_url=""
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -425,6 +447,7 @@ create_pr() {
             --title) title="$2"; shift 2 ;;
             --worktree) worktree="$2"; shift 2 ;;
             --config) config_path="$2"; shift 2 ;;
+            --issue-url) issue_url="$2"; shift 2 ;;
             --label) label="$2"; shift 2 ;;
             --prompt) prompt="$2"; shift 2 ;;
             *) shift ;;
@@ -439,7 +462,7 @@ create_pr() {
             # Delegate to existing script
             local script_dir
             script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-            local args=(--issue-key "$issue_key" --title "$title" --worktree "$worktree")
+            local args=(--issue-key "$issue_key" --title "$title" --worktree "$worktree" --config "$config_path" --issue-url "$issue_url")
             [[ -n "$label" ]] && args+=(--label "$label")
             [[ -n "$prompt" ]] && args+=(--prompt "$prompt")
             "$script_dir/create-github-pr.sh" "${args[@]}"
@@ -465,7 +488,11 @@ create_pr() {
             local mr_title="[$issue_key] $title"
             local quoted_prompt
             quoted_prompt=$(echo "$prompt" | sed 's/^/> /')
+            local issue_section
+            issue_section=$(build_issue_section "$issue_key" "$issue_url" "$config_path")
             local mr_body="👨‍🍳🍝 More details coming soon...
+
+$issue_section
 
 ---
 

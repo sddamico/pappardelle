@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import YAML from 'js-yaml';
+import {isBeadsIssueKey} from './issue-utils.ts';
 
 // ============================================================================
 // Types
@@ -79,7 +80,7 @@ export interface VcsConfig {
 }
 
 export interface IssueTrackerConfig {
-	provider: 'linear' | 'jira';
+	provider: 'linear' | 'jira' | 'beads';
 	base_url?: string; // Required for jira
 }
 
@@ -105,6 +106,24 @@ export interface IssueWatchlistConfig {
 
 export interface TerminalConfig {
 	app?: string; // Default: "iTerm"
+}
+
+/** How each space is drawn in the TUI list. */
+export type ListLayout = 'single_line' | 'two_line';
+
+export interface ListViewConfig {
+	/**
+	 * `single_line` puts the issue key and title on one row; `two_line` moves
+	 * the title to its own indented row beneath the key, trading list density
+	 * for legibility.
+	 *
+	 * Left unset, the default follows the tracker: beads mints descriptive
+	 * keys (`pappardelle-29r`) that are wide enough to crowd the title off a
+	 * shared row, so it gets `two_line`, while Linear/Jira's compact
+	 * `STA-1682` keys stay `single_line`. Setting this explicitly overrides
+	 * that inference in either direction.
+	 */
+	layout?: ListLayout;
 }
 
 export interface Profile {
@@ -207,6 +226,8 @@ export interface PappardelleConfig {
 	/** Commands to run before workspace deletion. If any fails, deletion is aborted. */
 	pre_workspace_deinit?: CommandConfig[];
 	terminal?: TerminalConfig;
+	/** How each space is drawn in the TUI list. Defaults per tracker. */
+	list_view?: ListViewConfig;
 	hooks?: HooksConfig;
 	keybindings?: KeybindingConfig[];
 	profiles: Record<string, Profile>;
@@ -308,6 +329,29 @@ export function getRepoRoot(): string {
 	} catch {
 		throw new Error('Not in a git repository');
 	}
+}
+
+/**
+ * The main repository root, resolved through worktrees — `getRepoRoot()`
+ * returns whichever worktree the process sits in.
+ *
+ * Beads needs this: a worktree carries its own checked-out `.beads/`
+ * directory, so running `bd` from inside one makes it auto-discover that copy
+ * instead of the canonical database every workspace is supposed to share.
+ * Falls back to the plain repo root when the common dir can't be read.
+ */
+export function getMainRepoRoot(): string {
+	try {
+		const commonDir = execSync(
+			'git rev-parse --path-format=absolute --git-common-dir',
+			{encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe']},
+		).trim();
+		if (commonDir) return path.dirname(commonDir.replace(/\/+$/, ''));
+	} catch {
+		// Fall through to the worktree root
+	}
+
+	return getRepoRoot();
 }
 
 /**
@@ -640,8 +684,14 @@ export function validateConfig(
 		} else {
 			const it = cfg['issue_tracker'] as Record<string, unknown>;
 			const {provider} = it;
-			if (provider !== 'linear' && provider !== 'jira') {
-				errors.push('issue_tracker.provider: must be "linear" or "jira"');
+			if (
+				provider !== 'linear' &&
+				provider !== 'jira' &&
+				provider !== 'beads'
+			) {
+				errors.push(
+					'issue_tracker.provider: must be "linear", "jira", or "beads"',
+				);
 			} else if (provider === 'jira' && typeof it['base_url'] !== 'string') {
 				errors.push('issue_tracker.base_url: required when provider is "jira"');
 			}
@@ -697,6 +747,22 @@ export function validateConfig(
 		typeof cfg['auto_remove_when_done'] !== 'boolean'
 	) {
 		errors.push('auto_remove_when_done: must be a boolean');
+	}
+
+	// Check list_view (optional; an absent layout defers to the tracker default)
+	if (cfg['list_view'] !== undefined) {
+		if (typeof cfg['list_view'] !== 'object' || cfg['list_view'] === null) {
+			errors.push('list_view: must be an object');
+		} else {
+			const listView = cfg['list_view'] as Record<string, unknown>;
+			if (
+				listView['layout'] !== undefined &&
+				listView['layout'] !== 'single_line' &&
+				listView['layout'] !== 'two_line'
+			) {
+				errors.push('list_view.layout: must be "single_line" or "two_line"');
+			}
+		}
 	}
 
 	// Check companion_command (optional, free-form shell command). Any string is
@@ -1434,6 +1500,31 @@ export function getProfileDefaultProject(profile: Profile): string | undefined {
 	return first === undefined || first === '' ? undefined : first;
 }
 
+/**
+ * The beads ID prefixes this repo uses: the configured team prefix plus every
+ * profile's `tracker_projects` entries, which under beads *are* prefixes.
+ *
+ * Beads hashes can be pure letters (`sddamico-hic`), so a prefix allowlist is
+ * the only thing separating an issue ID from an ordinary hyphenated phrase.
+ * Collecting the tracker_projects entries too keeps multi-prefix desks working
+ * — one database routinely holds issues from several source repos.
+ */
+export function getBeadsPrefixes(config: PappardelleConfig): string[] {
+	const prefixes = new Set<string>();
+	const add = (value: string | undefined) => {
+		const trimmed = value?.trim().toLowerCase();
+		if (trimmed) prefixes.add(trimmed);
+	};
+
+	add(config.team_prefix);
+	for (const profile of Object.values(config.profiles ?? {})) {
+		add(profile.team_prefix);
+		for (const project of profile.tracker_projects ?? []) add(project);
+	}
+
+	return [...prefixes];
+}
+
 // Issue-key patterns used to short-circuit keyword matching and return the default profile.
 const DETERMINE_PROFILE_ISSUE_KEY = /^[A-Z][A-Z0-9]*-\d+$/;
 const DETERMINE_PROFILE_ISSUE_NUMBER = /^\d+$/;
@@ -1492,7 +1583,13 @@ export function determineProfileForInput(
 	if (
 		DETERMINE_PROFILE_ISSUE_KEY.test(trimmed) ||
 		DETERMINE_PROFILE_ISSUE_NUMBER.test(trimmed) ||
-		DETERMINE_PROFILE_LINEAR_URL.test(trimmed)
+		DETERMINE_PROFILE_LINEAR_URL.test(trimmed) ||
+		// Beads IDs match none of the patterns above, so without this they would
+		// keyword-match to a profile and get pinned via --profile before the
+		// issue is fetched — defeating the prefix-based tracker_projects routing
+		// that idow performs once it has the issue.
+		(config.issue_tracker?.provider === 'beads' &&
+			isBeadsIssueKey(trimmed, getBeadsPrefixes(config)))
 	) {
 		return {kind: 'deferred', displayName: DEFERRED_PROFILE_DISPLAY_NAME};
 	}
@@ -1794,6 +1891,23 @@ export function getResolvedWatchlists(
  */
 export function getAutoRemoveWhenDone(config: PappardelleConfig): boolean {
 	return config.auto_remove_when_done ?? false;
+}
+
+/**
+ * How the TUI list draws each space.
+ *
+ * An explicit `list_view.layout` always wins. Otherwise the tracker decides:
+ * beads keys carry the repo prefix and a random suffix (`pappardelle-29r`),
+ * so on a shared row they leave too little width for the title to be worth
+ * reading — those default to `two_line`. Linear and Jira keys are short
+ * enough that the extra row is pure density loss, so they stay `single_line`.
+ */
+export function getListLayout(config: PappardelleConfig | null): ListLayout {
+	const explicit = config?.list_view?.layout;
+	if (explicit) return explicit;
+	return config?.issue_tracker?.provider === 'beads'
+		? 'two_line'
+		: 'single_line';
 }
 
 /**

@@ -1,5 +1,6 @@
 // Issue watchlist — polls the issue tracker for assigned issues with matching statuses
 // and determines which ones need new workspaces spawned.
+import {issueKeyPrefix} from './issue-utils.ts';
 import type {TrackerIssue} from './providers/types.ts';
 
 /**
@@ -41,6 +42,12 @@ export function filterByLabels(
  * empty (or contains only blanks), so an absent/empty config watches every
  * prefix — identical to behavior before this option existed.
  *
+ * The prefix is taken with `issueKeyPrefix`, which splits on the *last* hyphen
+ * so a beads prefix containing hyphens ('seatgeek-ticket-management-cli-bqm')
+ * survives. Splitting on the first one instead silently matched nothing for
+ * those repos, and a watchlist that matches nothing spawns no workspaces and
+ * reports no error.
+ *
  * A malformed identifier with no '-' yields its whole string as the "prefix",
  * which won't match any normal allowlist entry, so it is excluded. That's the
  * correct conservative behavior for an allowlist: when the prefix can't be
@@ -56,6 +63,6 @@ export function filterByKeyPrefixes(
 	);
 	if (prefixSet.size === 0) return issues;
 	return issues.filter(issue =>
-		prefixSet.has(issue.identifier.split('-')[0]!.toUpperCase()),
+		prefixSet.has(issueKeyPrefix(issue.identifier).toUpperCase()),
 	);
 }

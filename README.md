@@ -6,7 +6,7 @@
 
 A TUI for multi-clauding without losing your marbles.
 
-You type a description, it reads or creates an issue in Linear/Jira, spawns a configured git worktree, builds a PR/MR, and starts a Claude Code session alongside a companion pane (gitui by default, configurable to any command) — all wired together in a 3-pane tmux layout you can navigate with simple, customizable keystrokes.
+You type a description, it reads or creates an issue in Linear, Jira or beads, spawns a configured git worktree, builds a PR/MR, and starts a Claude Code session alongside a companion pane (gitui by default, configurable to any command) — all wired together in a 3-pane tmux layout you can navigate with simple, customizable keystrokes.
 
 **Video:**
 
@@ -128,11 +128,11 @@ When you create a workspace, Pappardelle runs through these steps:
 
 1. **Profile selection** — Your input is keyword-matched against a profile in `.pappardelle.yml`, and you confirm (or override) the match in the picker.
 
-2. **Issue creation/fetch** — For new descriptions, a Linear (or Jira) issue is created with a WIP title. For existing issue keys, the issue is fetched.
+2. **Issue creation/fetch** — For new descriptions, a Linear (or Jira, or beads) issue is created with a WIP title. For existing issue keys, the issue is fetched.
 
 3. **Git worktree** — An isolated worktree is created at `~/.worktrees/{repo-name}/{issue-key}/`. This is a full working copy of your repo on a new branch, completely isolated from your main checkout.
 
-4. **PR/MR creation** — A placeholder PR (GitHub) or MR (GitLab) is created from the new branch.
+4. **PR/MR creation** — A placeholder PR (GitHub) or MR (GitLab) is created from the new branch. Its body links back to the tracker issue — or, for beads, names the issue key, since beads issues live in a local database and have no web page.
 
 5. **Project setup** — Profile `commands` are executed (e.g., `xcodegen generate`, dependency installs). Top-level `post_workspace_init` commands also run after the worktree is created (e.g., copying `.env` files).
 
@@ -152,7 +152,7 @@ A one-line prompt like "add dark mode to settings" leaves a lot of questions ope
 
 ### Automatic Q&A documentation
 
-Every `AskUserQuestion` exchange is automatically posted as a comment on the Linear or Jira issue by the [`comment-question-answered.py`](hooks/comment-question-answered.py) hook. This means:
+Every `AskUserQuestion` exchange is automatically posted as a comment on the Linear, Jira or beads issue by the [`comment-question-answered.py`](hooks/comment-question-answered.py) hook. This means:
 
 - **The issue becomes the single source of truth.** The original prompt, every clarifying question, and every answer are all captured in one place — not scattered across chat windows or terminal scrollback.
 - **Anyone reviewing the PR can see the full context.** The issue thread shows exactly what the agent asked, what the developer decided, and why.
@@ -169,11 +169,11 @@ Pappardelle is configured via a `.pappardelle.yml` file at your repo root. The k
 - **Issue watchlist** — Auto-discover issues assigned to you and spawn workspaces for them. Pappardelle polls your issue tracker and creates workspaces for new matching issues. Filter by status, labels, or `key_prefixes` (e.g. watch `STA-*` but not `WAB-*` when one account spans multiple workspaces). A profile can also declare its own `issue_watchlist`, polled _in addition_ to the top-level one and auto-scoped to that profile's `team_prefix` — so you can watch one status everywhere and a bespoke status (e.g. "For Pappardelle") for a single project.
 - **Auto-remove when done** — Opt-in flag (`auto_remove_when_done: true`) that drops a space from the rail as soon as the tracker reports its issue as completed or canceled. Same teardown as pressing `d`; the on-disk worktree is left untouched.
 - **Companion pane command** — The right pane runs `companion_command` (defaults to `gitui`). Set it to any shell command — a different git UI (`companion_command: lazygit`), a dev server, a log tailer — or `""` to leave a plain shell. A profile can override the top-level value, so per-project profiles can each launch their own process.
-- **Profiles** — Per-project-type config (keywords, setup commands, VCS labels, optional `emoji:` shown in the ticket rail). Pappardelle keyword-matches your input to auto-select the right profile. Each profile's `tracker_projects` list both routes existing issues to the right profile (Linear project names; Jira project names or keys) and (Linear only) lands brand-new issues in `tracker_projects[0]`.
+- **Profiles** — Per-project-type config (keywords, setup commands, VCS labels, optional `emoji:` shown in the ticket rail). Pappardelle keyword-matches your input to auto-select the right profile. Each profile's `tracker_projects` list both routes existing issues to the right profile (Linear project names; Jira project names or keys; beads ID prefixes) and (Linear only) lands brand-new issues in `tracker_projects[0]`.
 - **Claude model and effort** — `claude.model` and `claude.effort` are passed straight through to `claude --model` / `--effort` when a workspace's session is created. Set them globally, per-profile, or both — the profile wins, and an explicit `""` on a profile clears an inherited global value. Omit them entirely and nothing changes: no flag is passed and Claude picks its own default.
 - **Template variables** — All string values support `${VAR_NAME}` expansion (`${ISSUE_KEY}`, `${WORKTREE_PATH}`, `${PR_URL}`, profile `vars`, env vars, etc.).
 - **Custom keybindings** — Bind single keys to bash commands (`run`) or Claude directives (`send_to_claude`).
-- **Providers** — Pluggable issue trackers (Linear, Jira) and VCS hosts (GitHub, GitLab). Defaults to Linear + GitHub.
+- **Providers** — Pluggable issue trackers (Linear, Jira, beads) and VCS hosts (GitHub, GitLab). Defaults to Linear + GitHub.
 - **Built-in file copies** — `.pappardelle.local.yml` and `.claude/settings.local.json` are automatically copied from the main repo to new worktrees (if they exist).
 - **Workspace lifecycle hooks** — `post_workspace_init` commands run after worktree creation (e.g., copying `.env` files, installing dependencies). `pre_workspace_deinit` commands run before workspace deletion (e.g., closing issues, removing worktrees).
 
@@ -333,6 +333,7 @@ Note the fallback to `${REPO_ROOT}/repo-a` here ensures this shortcut works in t
 | [gh](https://cli.github.com/)                                          | Optional | `brew install gh` (for GitHub)                                     |
 | [glab](https://gitlab.com/gitlab-org/cli)                              | Optional | `brew install glab` (for GitLab)                                   |
 | [acli](https://developer.atlassian.com/)                               | Optional | `brew tap atlassian/homebrew-acli && brew install acli` (for Jira) |
+| [bd](https://github.com/gastownhall/beads)                             | Optional | See the beads install docs (for Beads)                             |
 
 ### Manual installation
 
@@ -392,7 +393,7 @@ Pappardelle installs three Claude Code hooks that provide integration between Cl
 | Hook                           | Trigger                             | What it does                                                                  |
 | ------------------------------ | ----------------------------------- | ----------------------------------------------------------------------------- |
 | `update-status.py`             | `PreToolUse`, `PostToolUse`, `Stop` | Writes session status to `~/.pappardelle/claude-status/` for live TUI updates |
-| `comment-question-answered.py` | `PostToolUse` (AskUserQuestion)     | Posts Q&A exchanges as comments on the issue (Linear or Jira)                 |
+| `comment-question-answered.py` | `PostToolUse` (AskUserQuestion)     | Posts Q&A exchanges as comments on the issue (Linear, Jira, or beads)         |
 | `zap-notification.py`          | `PreToolUse`, `PermissionRequest`   | Sends push notifications via ntfy when Claude needs user input                |
 
 ### Versioning and updates
@@ -460,6 +461,7 @@ Standalone scripts in `integration-tests/` verify providers against real instanc
 ```bash
 npx tsx integration-tests/verify-linear.ts     # Linear provider (linctl)
 npx tsx integration-tests/verify-jira.ts       # Jira provider (acli)
+npx tsx integration-tests/verify-beads.ts      # Beads provider (bd, read-only by default)
 npx tsx integration-tests/verify-github.ts     # GitHub PR detection (gh)
 npx tsx integration-tests/verify-gitlab.ts     # GitLab MR detection (glab)
 npx tsx integration-tests/verify-config.ts     # Config loading + validation

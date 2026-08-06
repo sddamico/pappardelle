@@ -1,0 +1,41 @@
+version: 1
+
+# Beads issue prefix for this repo (.beads/config.yaml: issue-prefix)
+team_prefix: pappardelle
+
+vcs_host:
+  provider: github
+
+issue_tracker:
+  provider: beads
+
+# Carve the companion session into a 70% diff view over a 30% scratch terminal
+# rooted in the worktree, so ad-hoc commands don't cost a pane switch. The split
+# runs unconditionally (`;` not `&&`) so a too-short window still gets the diff.
+# hunk auto-reloads the diff as the worktree changes.
+companion_command: 'tmux split-window -v -d -l 30% -c "#{pane_current_path}" ; hunk diff --watch'
+
+claude:
+  initialization_command: '/do'
+  dangerously_skip_permissions: true
+
+post_workspace_init:
+  # .claude/skills is untracked, so worktrees never receive it — /do would be
+  # missing in exactly the workspaces initialization_command runs in.
+  - name: 'Link local skills'
+    run: '[ -e ${WORKTREE_PATH}/.claude/skills ] || { mkdir -p ${WORKTREE_PATH}/.claude && ln -sfn ${REPO_ROOT}/.claude/skills ${WORKTREE_PATH}/.claude/skills; }'
+  - name: 'Install dependencies'
+    run: 'cd ${WORKTREE_PATH} && npm install'
+  - name: 'Build'
+    run: 'cd ${WORKTREE_PATH} && npm run build'
+
+default_profile: default
+
+profiles:
+  default:
+    display_name: 'Pappardelle'
+    emoji: '🍝'
+    links:
+      - url: '${PR_URL}'
+        title: 'GitHub PR'
+        if_set: 'PR_URL'

@@ -27,10 +27,15 @@ export const ROW_FIXED_OVERHEAD = 3;
  * Calculate how many list items can be displayed given the terminal height.
  *
  * @param termHeight - Height of the list pane in rows
+ * @param linesPerItem - Terminal rows each item occupies (2 in two-line layout)
  * @returns Maximum number of items that fit
  */
-export function calculateMaxVisibleItems(termHeight: number): number {
-	return Math.max(1, termHeight - LIST_CHROME_ROWS);
+export function calculateMaxVisibleItems(
+	termHeight: number,
+	linesPerItem = 1,
+): number {
+	const perItem = Math.max(1, linesPerItem);
+	return Math.max(1, Math.floor((termHeight - LIST_CHROME_ROWS) / perItem));
 }
 
 /**
@@ -64,12 +69,13 @@ export function calculateVisibleWindow(
 	selectedIndex: number,
 	totalItems: number,
 	termHeight: number,
+	linesPerItem = 1,
 ): {
 	scrollOffset: number;
 	visibleCount: number;
 	adjustedSelectedIndex: number;
 } {
-	const maxVisible = calculateMaxVisibleItems(termHeight);
+	const maxVisible = calculateMaxVisibleItems(termHeight, linesPerItem);
 	const scrollOffset = calculateScrollOffset(
 		selectedIndex,
 		totalItems,
@@ -88,15 +94,22 @@ export function calculateVisibleWindow(
  * constant — the caller passes the current measured height (0 when the
  * banner is hidden). Returns null when the click is on chrome (banner /
  * header) or below the visible rows.
+ *
+ * `visibleRows` counts items, not terminal lines: with a `linesPerItem` of 2,
+ * a click on either of an item's two lines selects that one item.
  */
 export function calculateListClickRow(options: {
 	y: number;
 	bannerHeight: number;
 	visibleRows: number;
+	linesPerItem?: number;
 }): number | null {
+	const perItem = Math.max(1, options.linesPerItem ?? 1);
 	const headerOffset = options.bannerHeight + HEADER_ROWS;
-	const row = options.y - headerOffset;
-	if (row < 0 || row >= options.visibleRows) return null;
+	const line = options.y - headerOffset;
+	if (line < 0) return null;
+	const row = Math.floor(line / perItem);
+	if (row >= options.visibleRows) return null;
 	return row;
 }
 
@@ -141,6 +154,15 @@ export function rowPrefixWidth(prefix?: RowPrefix): number {
 	if (!prefix?.emoji) return 0;
 	const width = prefix.width ?? 2;
 	return width + 1; // emoji + trailing space
+}
+
+/**
+ * Left padding for the title row in the two-line layout, sized so the title
+ * starts in the same column as the issue key on the row above it — the emoji
+ * prefix plus the status icon and its trailing space.
+ */
+export function twoLineTitleIndent(prefix?: RowPrefix): number {
+	return rowPrefixWidth(prefix) + ROW_FIXED_OVERHEAD - 1;
 }
 
 /**

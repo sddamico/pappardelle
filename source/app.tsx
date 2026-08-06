@@ -54,6 +54,7 @@ import {
 } from './session-routing.ts';
 import {
 	loadConfig,
+	getBeadsPrefixes,
 	getTeamPrefix,
 	getRepoRoot,
 	getRepoName,
@@ -61,6 +62,7 @@ import {
 	getKeybindings,
 	getResolvedWatchlists,
 	getAutoRemoveWhenDone,
+	getListLayout,
 	expandTemplate,
 	buildWorkspaceTemplateVars,
 	matchProfiles,
@@ -763,7 +765,8 @@ export default function App({
 		}
 	};
 
-	// Open the Linear/Jira issue in browser for the selected space
+	// Open the issue for the selected space — in a browser for trackers with a
+	// web UI, in a tmux popup for local-only ones (beads).
 	const handleOpenIssue = () => {
 		const space = spaces[selectedIndex];
 		if (!space || space.isPending || space.isMainWorktree) {
@@ -773,7 +776,17 @@ export default function App({
 		}
 
 		try {
-			const url = createIssueTracker().buildIssueUrl(space.name);
+			const tracker = createIssueTracker();
+			if (tracker.openIssue) {
+				const shown = tracker.openIssue(space.name);
+				setHeaderWithTimeout(
+					shown ? `Showing ${space.name}` : 'Cannot show issue outside tmux',
+					3000,
+				);
+				return;
+			}
+
+			const url = tracker.buildIssueUrl(space.name);
 			spawn('open', [url], {detached: true, stdio: 'ignore'}).unref();
 			setHeaderWithTimeout(`Opened ${space.name}`, 3000);
 		} catch {
@@ -1616,7 +1629,12 @@ export default function App({
 		}
 
 		const teamPrefix = config ? getTeamPrefix(config) : 'STA';
-		const normalizedIssueKey = normalizeIssueIdentifier(input, teamPrefix);
+		const normalizedIssueKey = normalizeIssueIdentifier(
+			input,
+			teamPrefix,
+			createIssueTracker().name,
+			config ? getBeadsPrefixes(config) : undefined,
+		);
 
 		// Route the session: always pass just the issue key (or description) to idow.
 		// idow handles both new and existing issues correctly with a bare issue key.
@@ -1756,6 +1774,11 @@ export default function App({
 		? searchSelectedIndex
 		: displaySelectedIndex;
 
+	// Two-line rows halve how many spaces fit on screen, so the layout has to
+	// feed the scroll math rather than being a purely cosmetic render choice.
+	const listLayout = getListLayout(configMemo);
+	const linesPerItem = listLayout === 'two_line' ? 2 : 1;
+
 	// Calculate scroll offset for large lists
 	const {
 		scrollOffset,
@@ -1765,6 +1788,7 @@ export default function App({
 		activeSelectedIndex,
 		activeSpaces.length,
 		termHeight,
+		linesPerItem,
 	);
 	const visibleDisplaySpaces = activeSpaces.slice(
 		scrollOffset,
@@ -1793,6 +1817,7 @@ export default function App({
 				y: event.y,
 				bannerHeight,
 				visibleRows: visibleDisplaySpaces.length,
+				linesPerItem,
 			});
 			if (clickedRow === null) return;
 
@@ -1824,6 +1849,7 @@ export default function App({
 			visibleDisplaySpaces.length,
 			pendingInsertIndex,
 			bannerHeight,
+			linesPerItem,
 		],
 	);
 
@@ -1861,6 +1887,7 @@ export default function App({
 						space={space}
 						isSelected={index === adjustedDisplayIndex}
 						width={termDimensions.cols}
+						layout={listLayout}
 					/>
 				))}
 			</Box>

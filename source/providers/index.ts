@@ -1,4 +1,5 @@
 // Provider factory — creates and caches provider singletons
+import {BeadsProvider} from './beads-provider.ts';
 import {GitHubProvider} from './github-provider.ts';
 import {GitLabProvider} from './gitlab-provider.ts';
 import {JiraProvider} from './jira-provider.ts';
@@ -16,7 +17,7 @@ export type {
 } from './types.ts';
 
 export interface IssueTrackerConfig {
-	provider: 'linear' | 'jira';
+	provider: 'linear' | 'jira' | 'beads';
 	base_url?: string; // Required for Jira
 }
 
@@ -32,7 +33,9 @@ let vcsHostConfigKey: string | null = null;
 
 function trackerKey(config?: IssueTrackerConfig): string {
 	const provider = config?.provider ?? 'linear';
-	return provider === 'jira' ? `jira:${config?.base_url ?? ''}` : 'linear';
+	if (provider === 'jira') return `jira:${config?.base_url ?? ''}`;
+	if (provider === 'beads') return 'beads';
+	return 'linear';
 }
 
 function vcsKey(config?: VcsHostConfig): string {
@@ -88,6 +91,11 @@ export function createIssueTracker(
 			}
 
 			issueTrackerInstance = new JiraProvider(config.base_url);
+			break;
+		}
+
+		case 'beads': {
+			issueTrackerInstance = new BeadsProvider();
 			break;
 		}
 

@@ -12,7 +12,7 @@ The `.pappardelle.yml` file replaces the previous `.git` directory requirement. 
 - **Profile-based**: Different project types (iOS apps, backend services) have named profiles
 - **Required**: Pappardelle exits with an error if no config file is found
 - **Templated**: Supports variable expansion for dynamic values
-- **Provider-agnostic**: Supports multiple issue trackers (Linear, Jira) and VCS hosts (GitHub, GitLab)
+- **Provider-agnostic**: Supports multiple issue trackers (Linear, Jira, Beads) and VCS hosts (GitHub, GitLab)
 
 ## File Location
 
@@ -31,7 +31,7 @@ version: 1
 
 # Issue tracker provider (optional, defaults to linear)
 issue_tracker:
-  provider: linear # "linear" or "jira"
+  provider: linear # "linear", "jira", or "beads"
   # base_url: https://mycompany.atlassian.net  # Required for jira
 
 # VCS host provider (optional, defaults to github)
@@ -118,7 +118,8 @@ profiles:
     # is checked against these entries to auto-select the profile. On Linear,
     # entries are project names; on Jira, an entry may be either the project's
     # display name ("Pappardelle Testing") or its key ("KAN") — both match
-    # (STA-1649).
+    # (STA-1649). Beads has no project field, so entries are ID prefixes:
+    # "myproj" matches myproj-a1b2.
     #
     # The FIRST entry doubles as the default project for newly-created issues:
     # `idow "add dark mode"` resolves the matched profile, takes
@@ -128,7 +129,8 @@ profiles:
     # to position 0). Profiles with no `tracker_projects` create unassigned
     # issues, matching the pre-STA-959 default. This create-time default is
     # Linear-only — Jira's `--project KEY` is the team prefix, already
-    # per-profile-overridable.
+    # per-profile-overridable, and a new beads issue takes its prefix from the
+    # database it lands in.
     tracker_projects:
       - 'Stardust Jams MVP'
       - 'Stardust Jams Quality'
@@ -271,7 +273,7 @@ The following variables are available for use in templates:
 | `${HOME}`             | User home directory                        | `/Users/charlie`                                         |
 | `${VCS_LABEL}`        | VCS label from profile (provider-agnostic) | `stardust_jams`                                          |
 | `${GITHUB_LABEL}`     | Deprecated alias for `${VCS_LABEL}`        | `stardust_jams`                                          |
-| `${TRACKER_PROVIDER}` | Issue tracker provider name                | `linear` or `jira`                                       |
+| `${TRACKER_PROVIDER}` | Issue tracker provider name                | `linear`, `jira`, or `beads`                             |
 | `${VCS_PROVIDER}`     | VCS host provider name                     | `github` or `gitlab`                                     |
 
 Additionally, any keys defined in a profile's `vars` section become template variables. For example, `vars: { IOS_APP_DIR: "_ios/MyApp" }` makes `${IOS_APP_DIR}` available in all templates.
@@ -415,9 +417,9 @@ interface PappardelleConfig {
 	default_profile: string;
 	default_emoji?: string; // Fallback emoji for the ticket-rail prefix
 	issue_tracker?: {
-		provider: 'linear' | 'jira';
+		provider: 'linear' | 'jira' | 'beads';
 		base_url?: string; // Required for jira
-		default_issue_type?: string; // Jira-only. Default issue type for new issues. Defaults to "Task".
+		default_issue_type?: string; // Default issue type for new issues. Jira: "Task". Beads: "task".
 	};
 	vcs_host?: {
 		provider: 'github' | 'gitlab';
@@ -427,6 +429,9 @@ interface PappardelleConfig {
 	pre_workspace_deinit?: CommandConfig[]; // Commands to run before workspace deletion
 	terminal?: {
 		app?: string; // Terminal app name (default: iTerm)
+	};
+	list_view?: {
+		layout?: 'single_line' | 'two_line'; // TUI list row layout. Default: two_line for beads, single_line otherwise.
 	};
 	companion_command?: string; // Command run in the companion pane (default: gitui). Per-profile overridable. "" = plain shell.
 	claude?: {
@@ -579,6 +584,7 @@ Pappardelle supports multiple issue tracker backends. Configure with the top-lev
 | -------- | -------- | ------- |
 | `linear` | `linctl` | Yes     |
 | `jira`   | `acli`   | No      |
+| `beads`  | `bd`     | No      |
 
 **Linear** (default — no config needed):
 
@@ -615,6 +621,71 @@ profiles:
     jira:
       issue_type: Feature # DA project doesn't accept "Task"
 ```
+
+**Beads** ([beads](https://github.com/gastownhall/beads) — local, git-native
+issue tracking through the `bd` CLI). No `base_url`: there is no server.
+
+```yaml
+issue_tracker:
+  provider: beads
+
+# The database's issue prefix. Pappardelle's Claude Code hooks use it to tell a
+# beads workspace directory (myproj-a1b2) from an ordinary one (my-app).
+team_prefix: myproj
+```
+
+`default_issue_type` works here too, lowercased to match beads' vocabulary
+(`task`, `bug`, `feature`, `epic`, `chore`, `decision`). It defaults to `task`.
+
+Four things behave differently under beads, all of them consequences of it
+being a local tracker rather than a hosted one:
+
+- **Issue IDs are lowercase with a hash suffix** (`myproj-a1b2`), and children
+  add a `.N` segment (`myproj-a1b2.1`). Pappardelle passes them through
+  verbatim — no uppercasing — so worktrees, branches and rail rows all carry
+  the same ID `bd` knows. Bare numbers (`pappardelle 42`) only resolve in
+  databases old enough to have sequential IDs.
+- **There is no web URL.** `o` in the ticket rail opens `bd show` in a tmux
+  popup instead of a browser, and `${ISSUE_URL}` is empty for beads
+  workspaces, so `links:` entries using it are skipped.
+- **`tracker_projects` matches the ID prefix.** Beads has no project field, and
+  the prefix is its issue-source partition — the same role Jira's project key
+  plays. A single database can hold several prefixes, so this still routes
+  usefully when one desk pulls from more than one source:
+
+  ```yaml
+  profiles:
+    platform:
+      tracker_projects:
+        - myproj # matches myproj-a1b2
+    vendor:
+      tracker_projects:
+        - vendor-sdk # prefixes may contain hyphens; the split is on the last one
+  ```
+
+  New beads issues take their prefix from the database they land in, so
+  `tracker_projects[0]` does not steer issue *creation* the way it does on
+  Linear.
+- **The watchlist reads `bd ready`**, beads' own notion of actionable work —
+  open issues whose blocking dependencies are all closed. That is a stronger
+  filter than a status query. `issue_watchlist.statuses` still applies, as a
+  further narrowing on top; leave it empty to take every ready issue.
+
+  ```yaml
+  issue_watchlist:
+    statuses: [] # every ready issue
+    # statuses: [open]  # same thing, stated explicitly
+  ```
+
+  `bd ready` excludes `in_progress`, `blocked`, `deferred` and `hooked` by
+  construction, so `open` is the only status it can ever return. A `statuses`
+  list carried over from a Linear or Jira watchlist (`[In Progress]`) matches
+  nothing and the watchlist stays empty — pappardelle logs a warning naming the
+  unreachable statuses when that happens.
+
+All `bd` commands run from the main repository root, so every worktree reads
+and writes the one canonical database rather than whatever copy its branch
+carries.
 
 ### VCS Host Providers
 
@@ -690,6 +761,7 @@ profiles:
 | -------- | -------- | -------------------------------------------------------------------------------------- |
 | Linear   | `linctl` | `brew tap raegislabs/linctl && brew install linctl`                                    |
 | Jira     | `acli`   | See [Atlassian CLI docs](https://developer.atlassian.com/cloud/jira/platform/rest/v3/) |
+| Beads    | `bd`     | See [beads install docs](https://github.com/gastownhall/beads)                         |
 | GitHub   | `gh`     | `brew install gh`                                                                      |
 | GitLab   | `glab`   | `brew install glab`                                                                    |
 
@@ -829,6 +901,39 @@ auto_remove_when_done?: boolean;
 - The on-disk worktree is **not** deleted — same as the manual `d` flow.
 - No safety guards: a Done ticket is removed even if its branch has uncommitted changes or an open PR. Pair with `pre_workspace_deinit` if you want a guard.
 - Piggybacks on the 10s `loadSpaces` refresh, so newly-Done tickets disappear within a poll cycle.
+
+## List Layout
+
+Each space in the TUI list normally occupies one row: status icon, issue key, then the title filling whatever width is left. `list_view.layout` can instead give the title a row of its own, indented to line up under the issue key.
+
+```yaml
+list_view:
+  layout: two_line # 'single_line' | 'two_line'
+```
+
+```typescript
+list_view?: {
+	layout?: 'single_line' | 'two_line';
+};
+```
+
+**Default is per-tracker.** With `list_view` absent, beads gets `two_line` and every other tracker gets `single_line`. Beads keys carry the repo prefix and a random suffix (`pappardelle-29r`), so on a shared row they leave too little width for the title to be worth reading; Linear and Jira keys (`STA-1682`) are short enough that the extra row is pure density loss. Setting `layout` explicitly overrides the inference in either direction — beads users who prefer density can ask for `single_line`, and Linear/Jira users with long titles can ask for `two_line`.
+
+```
+single_line:
+🍝 ● pappardelle-29r Residual TUI flicker: rapid typing in the new-worksp…  (2) ✓
+
+two_line:
+🍝 ● pappardelle-29r                                                       (2) ✓
+     Residual TUI flicker: rapid typing in the new-workspace issue field r…
+```
+
+**How it works:**
+
+- Rail icons (pipeline state, comment count, conflict) stay on the key row, so the title row gets the full pane width less the indent.
+- Every item renders exactly two rows, including the main worktree and pending rows that have no title — the scroll math and mouse-click mapping both depend on that being invariant.
+- Two-line rows halve how many spaces fit on screen; `calculateVisibleWindow` accounts for this, and a click on either line of an item selects that item.
+- Selection highlight and the attention blink cover both rows.
 
 ## Companion Pane Command
 

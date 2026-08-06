@@ -1,15 +1,19 @@
-import React, {useState, useMemo} from 'react';
+import React, {useState, useMemo, useEffect} from 'react';
 import {Box, Text, useInput, useStdout} from 'ink';
 import TextInput from './TextInput.tsx';
 import TitledBox from './TitledBox.tsx';
+import ConfirmDialog from './ConfirmDialog.tsx';
 import {dialogWidth} from './dialog-width.ts';
 import {resolveEmojiSlot} from '../emoji-rail-width.ts';
+import {truncateToWidth} from '../truncate-to-width.ts';
 import {
 	loadConfig,
 	determineProfileForInput,
 	type PappardelleConfig,
 	type ProfileSelection,
 } from '../config.ts';
+import {createIssueTracker} from '../providers/index.ts';
+import type {TrackerIssue} from '../providers/types.ts';
 import {
 	buildProfileOptions,
 	computePickerWindow,
@@ -19,6 +23,17 @@ import {
 	PICKER_MAX_VISIBLE,
 	type ProfileOption,
 } from '../profile-picker.ts';
+import {
+	INPUT_INDEX,
+	moveSelection,
+	resolveSubmission,
+	selectionAfterRemoval,
+	visibleWindow,
+} from './ready-picker.ts';
+
+const MAX_VISIBLE_SUGGESTIONS = 8;
+
+const CLOSE_KEY = 'x';
 
 interface Props {
 	onSubmit: (prompt: string, profileName: string | null) => void;
@@ -42,6 +57,34 @@ export default function PromptDialog({
 	const [isPicking, setIsPicking] = useState(false);
 	const [selectedIndex, setSelectedIndex] = useState(0);
 
+	const [readyIssues, setReadyIssues] = useState<TrackerIssue[]>([]);
+	// Resolved up front so trackers without a ready query never flash a loading
+	// row on their way to rendering nothing.
+	const [loadingReady, setLoadingReady] = useState(() => {
+		try {
+			return typeof createIssueTracker().listReadyIssues === 'function';
+		} catch {
+			return false;
+		}
+	});
+	// The prompt field and the ready list share one cursor: INPUT_INDEX means the
+	// caret is in the text field, 0..n-1 point at a suggestion.
+	const [readyIndex, setReadyIndex] = useState(INPUT_INDEX);
+	// Trackers that can't close an issue locally leave closeIssue undefined; the
+	// keybinding and its hint disappear rather than failing on the keystroke.
+	const canClose = useMemo(() => {
+		try {
+			return typeof createIssueTracker().closeIssue === 'function';
+		} catch {
+			return false;
+		}
+	}, []);
+	const [closeTarget, setCloseTarget] = useState<{
+		issue: TrackerIssue;
+		index: number;
+	} | null>(null);
+	const [closeError, setCloseError] = useState<string | null>(null);
+
 	const {stdout} = useStdout();
 	const width = dialogWidth(availableWidth, stdout?.columns);
 
@@ -54,13 +97,48 @@ export default function PromptDialog({
 		}
 	}, []);
 
+	// Trackers that can't answer "what's ready" cheaply leave listReadyIssues
+	// undefined, which collapses the picker to nothing and leaves the dialog
+	// exactly as it was before.
+	useEffect(() => {
+		let cancelled = false;
+
+		const load = async () => {
+			try {
+				const tracker = createIssueTracker();
+				const issues = (await tracker.listReadyIssues?.()) ?? [];
+				if (!cancelled) setReadyIssues(issues);
+			} catch {
+				if (!cancelled) setReadyIssues([]);
+			} finally {
+				if (!cancelled) setLoadingReady(false);
+			}
+		};
+
+		void load();
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
+	const identifiers = useMemo(
+		() => readyIssues.map(issue => issue.identifier),
+		[readyIssues],
+	);
+
+	// What Enter would act on right now. Everything downstream — the profile
+	// preview and the option list — keys off this rather than the raw field, so
+	// arrowing into a suggestion re-aims them at the issue you are looking at.
+	const effectiveInput =
+		resolveSubmission(prompt, identifiers, readyIndex) ?? '';
+
 	// Live preview of what the first Enter will do. Deferred inputs (issue keys)
 	// still say so and still spawn on that one Enter; everything else advertises
 	// the profile the picker will preselect.
 	const preview = useMemo((): ProfileSelection | null => {
 		if (!config) return null;
-		return determineProfileForInput(config, prompt);
-	}, [config, prompt]);
+		return determineProfileForInput(config, effectiveInput);
+	}, [config, effectiveInput]);
 	const opensPicker = preview?.kind === 'resolved';
 
 	// Derived from the current prompt rather than snapshotted on Enter, because
@@ -68,8 +146,8 @@ export default function PromptDialog({
 	// picker takes focus the text input is frozen, so the list is stable for as
 	// long as a selection can move within it.
 	const options = useMemo(
-		() => (config ? buildProfileOptions(config, prompt) : []),
-		[config, prompt],
+		() => (config ? buildProfileOptions(config, effectiveInput) : []),
+		[config, effectiveInput],
 	);
 
 	// While typing, the preselected row IS the answer the old "Profile:" line
@@ -77,13 +155,51 @@ export default function PromptDialog({
 	// index only matters once the picker has focus.
 	const activeIndex = isPicking ? selectedIndex : 0;
 
+	const visibleReady = useMemo(
+		() =>
+			visibleWindow(readyIndex, readyIssues.length, MAX_VISIBLE_SUGGESTIONS),
+		[readyIndex, readyIssues.length],
+	);
+
+	// The frame and its padding eat columns, and the caret and issue key eat
+	// more; leaving slack keeps a long title from wrapping past the border.
+	const titleWidth = Math.max(20, width - 40);
+
+	const isPromptStage = !isPicking && closeTarget === null;
+
 	useInput(
-		(_input, key) => {
+		(input, key) => {
 			if (key.escape) {
 				onCancel();
+				return;
+			}
+
+			if (key.downArrow || key.upArrow) {
+				setReadyIndex(current =>
+					moveSelection(
+						current,
+						identifiers.length,
+						key.downArrow ? 'down' : 'up',
+					),
+				);
+				return;
+			}
+
+			if (
+				canClose &&
+				input === CLOSE_KEY &&
+				!key.ctrl &&
+				!key.meta &&
+				readyIndex >= 0
+			) {
+				const issue = readyIssues[readyIndex];
+				if (issue) {
+					setCloseError(null);
+					setCloseTarget({issue, index: readyIndex});
+				}
 			}
 		},
-		{isActive: !isPicking},
+		{isActive: isPromptStage},
 	);
 
 	useInput(
@@ -102,7 +218,7 @@ export default function PromptDialog({
 
 				case 'submit': {
 					const chosen = options[result.index];
-					if (chosen) onSubmit(prompt.trim(), chosen.name);
+					if (chosen) onSubmit(effectiveInput.trim(), chosen.name);
 					break;
 				}
 
@@ -119,18 +235,31 @@ export default function PromptDialog({
 				}
 			}
 		},
-		{isActive: isPicking},
+		{isActive: isPicking && closeTarget === null},
 	);
 
+	// Editing the field means the user is composing, not picking — drop back to
+	// the input so Enter can't submit a suggestion they've scrolled away from.
+	const handleChange = (value: string) => {
+		setPrompt(value);
+		setReadyIndex(INPUT_INDEX);
+	};
+
 	const handlePromptSubmit = (value: string) => {
-		const decision = resolvePromptSubmit(config, value);
+		// A highlighted suggestion wins over whatever is in the field. It is
+		// always an issue key, so resolvePromptSubmit routes it straight to
+		// 'spawn' and the profile stays deferred to the fetched issue.
+		const resolved = resolveSubmission(value, identifiers, readyIndex);
+		if (resolved === null) return;
+
+		const decision = resolvePromptSubmit(config, resolved);
 		switch (decision.kind) {
 			case 'none': {
 				break;
 			}
 
 			case 'spawn': {
-				onSubmit(value.trim(), decision.profileName);
+				onSubmit(resolved, decision.profileName);
 				break;
 			}
 
@@ -142,7 +271,49 @@ export default function PromptDialog({
 		}
 	};
 
-	const promptFrame = focusFrame(!isPicking);
+	const handleCloseConfirmed = async () => {
+		if (!closeTarget) return;
+		const {issue, index} = closeTarget;
+
+		let closed = false;
+		try {
+			closed =
+				(await createIssueTracker().closeIssue?.(issue.identifier)) ?? false;
+		} catch {
+			closed = false;
+		}
+
+		if (closed) {
+			const remaining = readyIssues.filter(
+				candidate => candidate.identifier !== issue.identifier,
+			);
+			setReadyIssues(remaining);
+			setReadyIndex(selectionAfterRemoval(index, remaining.length));
+		} else {
+			setCloseError(`Could not close ${issue.identifier}`);
+		}
+
+		setCloseTarget(null);
+	};
+
+	if (closeTarget) {
+		return (
+			<ConfirmDialog
+				title="Close Issue"
+				message={`Close ${closeTarget.issue.identifier}?`}
+				detail={closeTarget.issue.title}
+				processingMessage={`Closing ${closeTarget.issue.identifier}…`}
+				onConfirm={handleCloseConfirmed}
+				onCancel={() => setCloseTarget(null)}
+			/>
+		);
+	}
+
+	// Three stacked frames now share the dialog, so the outline has to track the
+	// cursor within the prompt stage too — arrowing into the ready list moves it
+	// off the text field even though Enter still belongs to the same stage.
+	const promptFrame = focusFrame(!isPicking && readyIndex === INPUT_INDEX);
+	const readyFrame = focusFrame(!isPicking && readyIndex >= 0);
 	const pickerFrame = focusFrame(isPicking);
 
 	return (
@@ -171,12 +342,22 @@ export default function PromptDialog({
 					<Text color="cyan">&gt; </Text>
 					<TextInput
 						value={prompt}
-						onChange={setPrompt}
+						onChange={handleChange}
 						onSubmit={handlePromptSubmit}
 						placeholder="STA-123, 123, or describe the task..."
 						isFocused={!isPicking}
+						isShowingCursor={readyIndex === INPUT_INDEX}
+						reservedChars={
+							canClose && readyIndex >= 0 ? [CLOSE_KEY] : undefined
+						}
 					/>
 				</Box>
+
+				{closeError && (
+					<Box marginTop={1}>
+						<Text color="red">{closeError}</Text>
+					</Box>
+				)}
 
 				{!isPicking && (
 					<Box marginTop={1}>
@@ -188,6 +369,63 @@ export default function PromptDialog({
 					</Box>
 				)}
 			</TitledBox>
+
+			{loadingReady && (
+				<Box paddingX={2}>
+					<Text dimColor>Loading ready work…</Text>
+				</Box>
+			)}
+
+			{readyIssues.length > 0 && (
+				<TitledBox
+					title={`Ready work (${readyIssues.length})`}
+					borderColor="green"
+					titleColor="greenBright"
+					borderStyle={readyFrame.borderStyle}
+					isDim={readyFrame.isDim}
+					width={width}
+					paddingY={0}
+				>
+					{visibleReady.start > 0 && (
+						<Text dimColor>↑ {visibleReady.start} more</Text>
+					)}
+					{readyIssues
+						.slice(visibleReady.start, visibleReady.end)
+						.map((issue, offset) => {
+							const index = visibleReady.start + offset;
+							const isSelected = index === readyIndex;
+							return (
+								<Box key={issue.identifier}>
+									<Text color="green">{isSelected ? '❯ ' : '  '}</Text>
+									<Text color={isSelected ? 'green' : 'cyan'} bold={isSelected}>
+										{issue.identifier}
+									</Text>
+									<Text dimColor={!isSelected}>
+										{' '}
+										{truncateToWidth(issue.title, titleWidth)}
+									</Text>
+								</Box>
+							);
+						})}
+					{visibleReady.end < readyIssues.length && (
+						<Text dimColor>↓ {readyIssues.length - visibleReady.end} more</Text>
+					)}
+				</TitledBox>
+			)}
+
+			{readyIssues.length > 0 && !isPicking && (
+				<Box paddingX={2}>
+					<Text dimColor>
+						<Text color="green">↑/↓</Text> pick up ready work
+						{canClose && (
+							<>
+								{' · '}
+								<Text color="green">x</Text> close
+							</>
+						)}
+					</Text>
+				</Box>
+			)}
 
 			<ProfilePicker
 				options={options}

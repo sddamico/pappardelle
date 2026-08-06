@@ -16,6 +16,7 @@ import {
 	getIssueWatchlist,
 	getResolvedWatchlists,
 	getAutoRemoveWhenDone,
+	getListLayout,
 	getCompanionCommand,
 	DEFAULT_COMPANION_COMMAND,
 	repoNameFromGitCommonDir,
@@ -29,6 +30,7 @@ import {
 	RESERVED_VAR_NAMES,
 	mergeKeybindings,
 	determineProfileForInput,
+	getBeadsPrefixes,
 	DEFERRED_PROFILE_DISPLAY_NAME,
 } from './config.ts';
 
@@ -187,6 +189,30 @@ test('getProfileEmoji uses default_emoji when profile is undefined', t => {
 		profiles: {test: {keywords: ['test'], display_name: 'Test'}},
 	};
 	t.is(getProfileEmoji(undefined, config), '🍕');
+});
+
+test('validateConfig accepts issue_tracker.provider beads without base_url', t => {
+	// Beads is local — there is no host to configure.
+	const raw = {
+		version: 1,
+		default_profile: 'test',
+		issue_tracker: {provider: 'beads'},
+		profiles: {test: {keywords: ['test'], display_name: 'Test'}},
+	};
+	t.notThrows(() => validateConfig(raw));
+});
+
+test('validateConfig names every supported tracker when one is unknown', t => {
+	const raw = {
+		version: 1,
+		default_profile: 'test',
+		issue_tracker: {provider: 'bugzilla'},
+		profiles: {test: {keywords: ['test'], display_name: 'Test'}},
+	};
+	const error = t.throws(() => validateConfig(raw), {
+		instanceOf: ConfigValidationError,
+	});
+	t.truthy(error?.message.includes('"linear", "jira", or "beads"'));
 });
 
 test('validateConfig rejects non-string default_emoji', t => {
@@ -4236,6 +4262,91 @@ test('determineProfileForInput defers profile selection for issue keys', t => {
 	}
 });
 
+test('determineProfileForInput defers profile selection for beads IDs', t => {
+	// Beads IDs match none of the classic patterns, so without this they would
+	// keyword-match and get pinned via --profile before the issue is fetched —
+	// defeating the prefix-based tracker_projects routing idow performs.
+	const config = {
+		...createConfig(
+			{
+				personal: createProfile(['personal'], 'Personal'),
+				dark: createProfile(['dark'], 'Dark Mode Work'),
+			},
+			'personal',
+		),
+		team_prefix: 'pap',
+		issue_tracker: {provider: 'beads' as const},
+	};
+	const info = determineProfileForInput(config, 'pap-a1b2');
+	t.is(info?.kind, 'deferred');
+});
+
+test('determineProfileForInput keyword-matches a beads-shaped phrase', t => {
+	// 'dark-mode' is prose, not an ID — no profile lists 'dark' as a prefix.
+	const config = {
+		...createConfig(
+			{
+				personal: createProfile(['personal'], 'Personal'),
+				dark: createProfile(['dark'], 'Dark Mode Work'),
+			},
+			'personal',
+		),
+		team_prefix: 'pap',
+		issue_tracker: {provider: 'beads' as const},
+	};
+	const info = determineProfileForInput(config, 'dark-mode');
+	t.is(info?.kind, 'resolved');
+});
+
+test('determineProfileForInput does not defer beads IDs under other trackers', t => {
+	// Regression pin: the beads branch must be gated on the configured provider.
+	const config = {
+		...createConfig(
+			{personal: createProfile(['personal'], 'Personal')},
+			'personal',
+		),
+		team_prefix: 'pap',
+	};
+	t.is(determineProfileForInput(config, 'pap-a1b2')?.kind, 'resolved');
+});
+
+// ============================================================================
+// getBeadsPrefixes
+// ============================================================================
+
+test('getBeadsPrefixes collects the team prefix and tracker_projects', t => {
+	const config: PappardelleConfig = {
+		version: 1,
+		team_prefix: 'pap',
+		profiles: {
+			platform: {
+				display_name: 'Platform',
+				tracker_projects: ['myproj', 'vendor-sdk'],
+			},
+			other: {display_name: 'Other', team_prefix: 'alt'},
+		},
+	};
+	t.deepEqual(getBeadsPrefixes(config).sort(), [
+		'alt',
+		'myproj',
+		'pap',
+		'vendor-sdk',
+	]);
+});
+
+test('getBeadsPrefixes lowercases and dedupes', t => {
+	const config: PappardelleConfig = {
+		version: 1,
+		team_prefix: 'PAP',
+		profiles: {a: {display_name: 'A', tracker_projects: ['pap', ' Pap ']}},
+	};
+	t.deepEqual(getBeadsPrefixes(config), ['pap']);
+});
+
+test('getBeadsPrefixes is empty when nothing is configured', t => {
+	t.deepEqual(getBeadsPrefixes({version: 1, profiles: {}}), []);
+});
+
 test('determineProfileForInput defers profile selection for bare issue numbers', t => {
 	const config = createConfig(
 		{personal: createProfile(['personal'], 'Personal')},
@@ -4409,4 +4520,101 @@ test('determineProfileForInput emoji survives the default-profile fallback', t =
 		t.true(info.isDefault);
 		t.is(info.emoji, '🎸');
 	}
+});
+
+// ============================================================================
+// getListLayout Tests
+//
+// The layout defaults per tracker (beads keys are wide enough to crowd a
+// shared row) but an explicit list_view.layout always wins.
+// ============================================================================
+
+test('getListLayout defaults to single_line for linear', t => {
+	const config = createConfig({test: createProfile(['test'], 'Test')});
+	config.issue_tracker = {provider: 'linear'};
+	t.is(getListLayout(config), 'single_line');
+});
+
+test('getListLayout defaults to single_line for jira', t => {
+	const config = createConfig({test: createProfile(['test'], 'Test')});
+	config.issue_tracker = {provider: 'jira'};
+	t.is(getListLayout(config), 'single_line');
+});
+
+test('getListLayout defaults to two_line for beads', t => {
+	const config = createConfig({test: createProfile(['test'], 'Test')});
+	config.issue_tracker = {provider: 'beads'};
+	t.is(getListLayout(config), 'two_line');
+});
+
+test('getListLayout defaults to single_line when no tracker is configured', t => {
+	const config = createConfig({test: createProfile(['test'], 'Test')});
+	t.is(getListLayout(config), 'single_line');
+});
+
+test('getListLayout lets beads opt back out of two_line', t => {
+	const config = createConfig({test: createProfile(['test'], 'Test')});
+	config.issue_tracker = {provider: 'beads'};
+	config.list_view = {layout: 'single_line'};
+	t.is(getListLayout(config), 'single_line');
+});
+
+test('getListLayout lets a non-beads tracker opt into two_line', t => {
+	const config = createConfig({test: createProfile(['test'], 'Test')});
+	config.issue_tracker = {provider: 'linear'};
+	config.list_view = {layout: 'two_line'};
+	t.is(getListLayout(config), 'two_line');
+});
+
+test('getListLayout falls back to single_line for a null config', t => {
+	t.is(getListLayout(null), 'single_line');
+});
+
+test('getListLayout ignores an empty list_view block', t => {
+	const config = createConfig({test: createProfile(['test'], 'Test')});
+	config.issue_tracker = {provider: 'beads'};
+	config.list_view = {};
+	t.is(getListLayout(config), 'two_line');
+});
+
+test('validateConfig accepts both list_view layouts', t => {
+	for (const layout of ['single_line', 'two_line']) {
+		t.notThrows(() =>
+			validateConfig({
+				version: 1,
+				profiles: {test: {display_name: 'Test'}},
+				list_view: {layout},
+			}),
+		);
+	}
+});
+
+test('validateConfig rejects an unknown list_view layout', t => {
+	const error = t.throws(
+		() =>
+			validateConfig({
+				version: 1,
+				profiles: {test: {display_name: 'Test'}},
+				list_view: {layout: 'three_line'},
+			}),
+		{instanceOf: ConfigValidationError},
+	);
+	t.truthy(
+		error?.message.includes(
+			'list_view.layout: must be "single_line" or "two_line"',
+		),
+	);
+});
+
+test('validateConfig rejects a non-object list_view', t => {
+	const error = t.throws(
+		() =>
+			validateConfig({
+				version: 1,
+				profiles: {test: {display_name: 'Test'}},
+				list_view: 'two_line',
+			}),
+		{instanceOf: ConfigValidationError},
+	);
+	t.truthy(error?.message.includes('list_view: must be an object'));
 });

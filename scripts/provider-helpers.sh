@@ -8,12 +8,78 @@
 # Requires: yq, jq, and the relevant CLI tools (linctl/acli, gh/glab)
 
 # Get the issue tracker provider from .pappardelle.yml
-# Returns: "linear" (default) or "jira"
+# Returns: "linear" (default), "jira", or "beads"
 get_issue_tracker_provider() {
     local config_path="$1"
     local provider
     provider=$(yq -r '.issue_tracker.provider // "linear"' "$config_path" 2>/dev/null)
     echo "$provider"
+}
+
+# The main repository root, resolved through worktrees. Every bd invocation runs
+# here so each worktree reads and writes the one canonical beads database
+# instead of whatever copy its branch happens to carry.
+beads_repo_root() {
+    local common_dir
+    common_dir=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || {
+        git rev-parse --show-toplevel 2>/dev/null
+        return
+    }
+    dirname "$common_dir"
+}
+
+# Run bd from the main repo root, asking for enveloped JSON so the payload shape
+# survives beads 2.0 making the envelope its default.
+run_bd() {
+    (cd "$(beads_repo_root)" && BD_JSON_ENVELOPE=1 bd "$@")
+}
+
+# Every beads ID prefix this repo can mint keys under, one per line, lowercased.
+# Sources are the global team_prefix, each profile's team_prefix override, and
+# each profile's tracker_projects (which name beads prefixes the way they name
+# Linear/Jira projects for the other trackers).
+#
+# Mirrors getBeadsPrefixes in source/config.ts and get_beads_prefixes in
+# hooks/tracker_config.py; all three have to agree or the same input is a key in
+# one place and prose in another.
+beads_id_prefixes() {
+    local config_path="$1"
+    yq -r '[.team_prefix, .profiles[].team_prefix, .profiles[].tracker_projects[]]
+           | .[] | select(. != null and . != "")' \
+        "$config_path" 2>/dev/null | tr '[:upper:]' '[:lower:]' | sort -u
+}
+
+# Whether $1 is a beads issue ID belonging to a prefix configured in $2.
+#
+# A beads suffix is a content hash, so it can be pure letters — nothing about
+# the shape of `fix-crash` distinguishes it from an ID. Without anchoring to the
+# configured prefixes, every hyphenated description would be routed as an
+# existing issue and die on the bd lookup instead of creating one.
+is_beads_issue_key() {
+    local input="$1" config_path="$2" prefix input_prefix
+
+    [[ "$input" =~ ^[a-zA-Z0-9_]+(-[a-zA-Z0-9_]+)+(\.[0-9]+){0,3}$ ]] || return 1
+
+    # Split on the LAST hyphen: a beads prefix may contain hyphens of its own,
+    # since it defaults to the repo directory name.
+    input_prefix="${input%%.*}"
+    input_prefix="${input_prefix%-*}"
+    input_prefix=$(echo "$input_prefix" | tr '[:upper:]' '[:lower:]')
+
+    while IFS= read -r prefix; do
+        [[ -n "$prefix" ]] || continue
+        [[ "$prefix" == "$input_prefix" ]] && return 0
+    done < <(beads_id_prefixes "$config_path")
+
+    return 1
+}
+
+# Reduce any bd JSON payload to a single issue object. Handles the envelope
+# ({schema_version, data}) and the fact that bd show returns a one-element array
+# rather than the bare object its schema doc describes.
+beads_first_issue() {
+    jq -r 'if type == "object" and has("data") then .data else . end
+           | if type == "array" then (.[0] // {}) else . end'
 }
 
 # Get the VCS host provider from .pappardelle.yml
@@ -58,6 +124,11 @@ fetch_issue_json() {
             # omits `project`, which profile matching needs (STA-1649).
             acli jira workitem view "$issue_key" --fields '*all' --json 2>/dev/null
             ;;
+        beads)
+            # --id= rather than a positional: beads IDs can start with a run of
+            # characters the flag parser would otherwise claim.
+            run_bd show --id="$issue_key" --json 2>/dev/null | beads_first_issue
+            ;;
         *)
             echo "Error: Unknown issue tracker provider: $provider" >&2
             return 1
@@ -80,6 +151,9 @@ extract_issue_title() {
         jira)
             echo "$json" | jq -r '.fields.summary // empty'
             ;;
+        beads)
+            echo "$json" | jq -r '.title // empty'
+            ;;
     esac
 }
 
@@ -97,6 +171,9 @@ extract_issue_description() {
             ;;
         jira)
             echo "$json" | jq -r '.fields.description // ""'
+            ;;
+        beads)
+            echo "$json" | jq -r '.description // ""'
             ;;
     esac
 }
@@ -123,7 +200,34 @@ extract_issue_url() {
             base_url=$(get_jira_base_url "$config_path")
             echo "${base_url}/browse/$issue_key"
             ;;
+        beads)
+            # Beads issues are local; there is no page to link to. idow already
+            # skips the ISSUE_URL template var when it's empty.
+            echo ""
+            ;;
     esac
+}
+
+# Render the tracker-issue section of a placeholder PR/MR body.
+# The heading names the configured tracker rather than assuming Linear, and
+# trackers with no web page (beads issues live in a local database) get the
+# bare issue key instead of a link that resolves to nothing.
+# Args: $1=issue_key, $2=issue_url, $3=config_path
+build_issue_section() {
+    local issue_key="$1"
+    local issue_url="$2"
+    local config_path="$3"
+    local provider heading
+    provider=$(get_issue_tracker_provider "$config_path")
+
+    case "$provider" in
+        linear) heading="Linear Issue" ;;
+        jira)   heading="Jira Issue" ;;
+        beads)  heading="Beads Issue" ;;
+        *)      heading="Issue" ;;
+    esac
+
+    printf '## %s\n%s' "$heading" "${issue_url:-$issue_key}"
 }
 
 # Extract the issue's tracker-project identifiers for profile matching.
@@ -144,6 +248,14 @@ extract_issue_project_candidates() {
             ;;
         jira)
             echo "$json" | jq -r '(.fields.project.name // empty), (.fields.project.key // empty)'
+            ;;
+        beads)
+            # Beads has no project field. Its issue-source partition is the ID
+            # prefix — everything ahead of the hash — and one database routinely
+            # holds several, which is what makes it a usable stand-in. The
+            # prefix may itself contain hyphens ("seatgeek-ticket-management-cli-bqm"),
+            # so split on the last one, after dropping any ".N" child suffix.
+            echo "$json" | jq -r '(.id // "") | split(".")[0] | split("-") | if length > 1 then .[0:-1] | join("-") else empty end'
             ;;
     esac
 }
@@ -276,7 +388,10 @@ $quoted_prompt"
             script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
             local hooks_dir="$script_dir/../hooks"
             local adf_tmp
-            adf_tmp=$(mktemp /tmp/pappardelle-desc-XXXXXX.json)
+            # No filename suffix: BSD mktemp only substitutes trailing X's, so
+            # "-XXXXXX.json" yields that exact path in a world-writable dir —
+            # clobbered by a concurrent idow, and a symlink there is followed.
+            adf_tmp=$(mktemp /tmp/pappardelle-desc-XXXXXX)
             if ! python3 "$hooks_dir/markdown_to_adf.py" "$description" > "$adf_tmp"; then
                 echo "Error: Failed to convert description to ADF format" >&2
                 rm -f "$adf_tmp"
@@ -303,14 +418,68 @@ $quoted_prompt"
             local issue_url="${base_url}/browse/$issue_key"
             echo "{\"issue_key\":\"$issue_key\",\"issue_url\":\"$issue_url\"}"
             ;;
+        beads)
+            local quoted_prompt
+            quoted_prompt=$(echo "$prompt" | sed 's/^/> /')
+            local description="👨‍🍳🍝 More details coming soon...
+
+---
+
+_Original prompt:_
+
+$quoted_prompt"
+            # --body-file rather than -d: the prompt is arbitrary user prose and
+            # can outgrow a comfortable argv entry.
+            local desc_tmp
+            # No filename suffix — see the note on adf_tmp above.
+            desc_tmp=$(mktemp /tmp/pappardelle-beads-desc-XXXXXX)
+            printf '%s' "$description" > "$desc_tmp"
+
+            # The beads issue type shares issue_tracker.default_issue_type with
+            # Jira, but beads spells its types lowercase and rejects "Task".
+            local beads_type
+            beads_type=$(echo "$issue_type" | tr '[:upper:]' '[:lower:]')
+
+            # stderr is captured separately rather than folded into stdout:
+            # bd emits advisory warnings (e.g. a duplicate binary on PATH) that
+            # would otherwise be swallowed into the issue key.
+            #
+            # --json rather than --silent: --silent has been observed returning
+            # an empty stdout while still exiting 0 and committing the issue,
+            # which stranded a created issue with no worktree and no way to
+            # report why. The JSON envelope either carries .data.id or it
+            # doesn't, and the raw output survives for the error message.
+            local err_tmp out_tmp issue_key bd_rc
+            err_tmp=$(mktemp /tmp/pappardelle-beads-err-XXXXXX)
+            out_tmp=$(mktemp /tmp/pappardelle-beads-out-XXXXXX)
+            # No project assignment: a beads issue's prefix comes from the
+            # database it lands in, not from anything the caller can choose.
+            run_bd create "$title" --type "$beads_type" --body-file "$desc_tmp" --json \
+                >"$out_tmp" 2>"$err_tmp" && bd_rc=0 || bd_rc=$?
+            rm -f "$desc_tmp"
+            issue_key=$(beads_first_issue <"$out_tmp" 2>/dev/null | jq -r '.id // empty' 2>/dev/null)
+
+            if [[ "$bd_rc" -ne 0 || -z "$issue_key" ]]; then
+                # Report rc and raw stdout alongside stderr: bd can fail with a
+                # silent stdout, and a bare "Failed to create" hides whether the
+                # issue was actually committed.
+                echo "Error: Failed to create beads issue (bd exit $bd_rc)" >&2
+                echo "  stderr: $(tr '\n' ' ' <"$err_tmp")" >&2
+                echo "  stdout: $(tr '\n' ' ' <"$out_tmp")" >&2
+                rm -f "$err_tmp" "$out_tmp"
+                return 1
+            fi
+            rm -f "$err_tmp" "$out_tmp"
+            echo "{\"issue_key\":\"$issue_key\",\"issue_url\":\"\"}"
+            ;;
     esac
 }
 
 # Create a PR/MR in the configured VCS host
-# Args: --issue-key <key> --title <title> --worktree <path> --config <config_path> [--label <label>] [--prompt <prompt>]
+# Args: --issue-key <key> --title <title> --worktree <path> --config <config_path> [--issue-url <url>] [--label <label>] [--prompt <prompt>]
 # Outputs: JSON with pr_url/mr_url
 create_pr() {
-    local issue_key="" title="" worktree="" config_path="" label="" prompt=""
+    local issue_key="" title="" worktree="" config_path="" label="" prompt="" issue_url=""
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -318,6 +487,7 @@ create_pr() {
             --title) title="$2"; shift 2 ;;
             --worktree) worktree="$2"; shift 2 ;;
             --config) config_path="$2"; shift 2 ;;
+            --issue-url) issue_url="$2"; shift 2 ;;
             --label) label="$2"; shift 2 ;;
             --prompt) prompt="$2"; shift 2 ;;
             *) shift ;;
@@ -332,7 +502,7 @@ create_pr() {
             # Delegate to existing script
             local script_dir
             script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-            local args=(--issue-key "$issue_key" --title "$title" --worktree "$worktree")
+            local args=(--issue-key "$issue_key" --title "$title" --worktree "$worktree" --config "$config_path" --issue-url "$issue_url")
             [[ -n "$label" ]] && args+=(--label "$label")
             [[ -n "$prompt" ]] && args+=(--prompt "$prompt")
             "$script_dir/create-github-pr.sh" "${args[@]}"
@@ -358,7 +528,11 @@ create_pr() {
             local mr_title="[$issue_key] $title"
             local quoted_prompt
             quoted_prompt=$(echo "$prompt" | sed 's/^/> /')
+            local issue_section
+            issue_section=$(build_issue_section "$issue_key" "$issue_url" "$config_path")
             local mr_body="👨‍🍳🍝 More details coming soon...
+
+$issue_section
 
 ---
 

@@ -1,6 +1,6 @@
 // Tmux session attachment for pappardelle
 // Attaches to existing claude-STA-XXX and companion-STA-XXX sessions created by idow
-import {exec, execSync, spawnSync} from 'node:child_process';
+import {exec, execSync, spawn, spawnSync} from 'node:child_process';
 import {existsSync, readFileSync, statSync, writeFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
@@ -86,7 +86,7 @@ export function extractIssueKeyFromSession(
 ): string | null {
 	const prefix = getSessionPrefix('claude', repoName);
 	if (!sessionName.startsWith(prefix)) return null;
-	return sessionName.slice(prefix.length);
+	return fromSessionKey(sessionName.slice(prefix.length));
 }
 
 // Track which space is currently being viewed
@@ -147,6 +147,26 @@ export function innerSessionExists(sessionName: string): boolean {
 }
 
 /**
+ * tmux rewrites '.' to '_' in session names, because '.' separates window from
+ * pane in a target specifier. A beads child issue (`bd-a3f8e9.1`) would
+ * therefore create a session under a name `has-session` could never find
+ * again — and a space whose session always looks absent gets respawned
+ * forever. So encode the key on the way in and decode on the way out.
+ *
+ * A literal '_' is doubled first so the mapping stays reversible. Keys can
+ * contain one: a beads prefix defaults to the repo directory name, making
+ * `my_service-a1b2` an ordinary ID, and a naive decode would hand back
+ * `my.service-a1b2`.
+ */
+export function toSessionKey(issueKey: string): string {
+	return issueKey.replaceAll('_', '__').replaceAll('.', '_');
+}
+
+export function fromSessionKey(sessionKey: string): string {
+	return sessionKey.replaceAll(/__|_/g, match => (match === '__' ? '_' : '.'));
+}
+
+/**
  * Get session names for a space.
  * Optional repoName parameter for testing; defaults to getRepoName().
  */
@@ -159,9 +179,10 @@ export function getSessionNames(
 } {
 	const claudePrefix = getSessionPrefix('claude', repoName);
 	const companionPrefix = getSessionPrefix('companion', repoName);
+	const key = toSessionKey(issueKey);
 	return {
-		claude: `${claudePrefix}${issueKey}`,
-		companion: `${companionPrefix}${issueKey}`,
+		claude: `${claudePrefix}${key}`,
+		companion: `${companionPrefix}${key}`,
 	};
 }
 
@@ -195,6 +216,33 @@ function claudeFlag(flag: string, value?: string): string {
 	if (!value) return '';
 	const safe = /^[A-Za-z0-9._-]+$/.test(value) ? value : shellQuote(value);
 	return ` ${flag} ${safe}`;
+}
+
+/**
+ * Show a command's output in a dismissible tmux popup over the current client.
+ * Used by trackers whose issues have no web page to open — beads keeps
+ * everything local, so `o` renders `bd show` here instead of launching a
+ * browser. Runs on the outer socket, where the TUI's own client lives.
+ *
+ * Detached like the other `o`-key launchers (`open`, `cursor`): the popup owns
+ * the terminal until the user dismisses it, and waiting on it here would stall
+ * Ink's render loop. `argv` is quoted rather than interpolated because
+ * display-popup takes a shell command string, not an argument vector.
+ * Returns false when there's no tmux client to draw over.
+ */
+export function displayPopup(argv: string[]): boolean {
+	if (argv.length === 0 || !process.env['TMUX']) return false;
+	const command = argv.map(arg => shellQuote(arg)).join(' ');
+	try {
+		spawn('tmux', ['display-popup', '-E', '-w', '80%', '-h', '80%', command], {
+			detached: true,
+			stdio: 'ignore',
+		}).unref();
+		return true;
+	} catch (error) {
+		log.debug(`display-popup failed: ${String(error)}`);
+		return false;
+	}
 }
 
 /**

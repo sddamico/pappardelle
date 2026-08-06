@@ -11,6 +11,15 @@ type Props = {
 	placeholder?: string;
 	isFocused?: boolean;
 	isShowingCursor?: boolean;
+	/**
+	 * Plain characters the field must not insert, so a parent can bind them as
+	 * commands while the field stays focused. The ready-work picker claims `x`
+	 * for closing the highlighted suggestion; without this the keystroke would
+	 * both open the confirmation and leave a stray character in the prompt.
+	 * Modified presses (Ctrl/Alt) are unaffected — those never reach the
+	 * insertion path anyway.
+	 */
+	reservedChars?: readonly string[];
 };
 
 /**
@@ -33,6 +42,7 @@ export default function TextInput({
 	placeholder = '',
 	isFocused = true,
 	isShowingCursor = true,
+	reservedChars,
 	onChange,
 	onSubmit,
 }: Props) {
@@ -79,6 +89,10 @@ export default function TextInput({
 
 	useRawInput(
 		(input, key) => {
+			if (reservedChars?.includes(input) && !key.ctrl && !key.meta) {
+				return;
+			}
+
 			const result = handleTextInputKey(
 				originalValue,
 				cursorOffset,

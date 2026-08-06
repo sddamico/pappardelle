@@ -166,6 +166,23 @@ export function twoLineTitleIndent(prefix?: RowPrefix): number {
 }
 
 /**
+ * Whether an item's title belongs on the same row as its issue key.
+ *
+ * Always true in the single-line layout. In the two-line layout it holds only
+ * for pending rows: their "title" is progress text for a workspace that is
+ * still being set up, so it belongs beside the spinner reporting that
+ * progress. Indented onto the second row it reads as the title of a space
+ * that does not exist yet — and for description routes, where no issue key
+ * has been minted, it leaves the first row showing nothing but a spinner.
+ */
+export function titleSharesKeyLine(options: {
+	isTwoLine: boolean;
+	isPending?: boolean;
+}): boolean {
+	return !options.isTwoLine || options.isPending === true;
+}
+
+/**
  * How many cells the right-aligned rail-icon cluster occupies. Includes one
  * leading space per chunk (separating the icons from the title and from
  * each other). Returns 0 when pipeline, comment count, and conflict flag are

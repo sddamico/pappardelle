@@ -2,6 +2,7 @@ import test from 'ava';
 import {
 	calculateMaxVisibleItems,
 	twoLineTitleIndent,
+	titleSharesKeyLine,
 	calculateScrollOffset,
 	calculateVisibleWindow,
 	calculateAvailableTitleWidth,
@@ -1404,4 +1405,24 @@ test('twoLineTitleIndent aligns with where the issue key starts', t => {
 test('twoLineTitleIndent aligns with the key when there is no emoji', t => {
 	const row = renderListRow('sta-1', '\u25CF', 'title', 40);
 	t.is(row.indexOf('sta-1'), twoLineTitleIndent());
+});
+
+// ============================================================================
+// titleSharesKeyLine — a pending row's progress text ("Starting new session…")
+// has to sit beside the spinner on the first line, not on the indented title
+// line below it.
+// ============================================================================
+
+test('titleSharesKeyLine: single-line layout always shares the row', t => {
+	t.true(titleSharesKeyLine({isTwoLine: false}));
+	t.true(titleSharesKeyLine({isTwoLine: false, isPending: true}));
+});
+
+test('titleSharesKeyLine: two-line layout gives real spaces their own title row', t => {
+	t.false(titleSharesKeyLine({isTwoLine: true}));
+	t.false(titleSharesKeyLine({isTwoLine: true, isPending: false}));
+});
+
+test('titleSharesKeyLine: two-line pending rows keep the text on the key line', t => {
+	t.true(titleSharesKeyLine({isTwoLine: true, isPending: true}));
 });

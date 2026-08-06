@@ -10,6 +10,7 @@ import {
 	railPrefixWidth,
 	rowPrefixWidth,
 	twoLineTitleIndent,
+	titleSharesKeyLine,
 } from '../list-view-sizing.ts';
 import {inkRenderPad, resolveEmojiSlot} from '../emoji-rail-width.ts';
 import {truncateToWidth} from '../truncate-to-width.ts';
@@ -50,6 +51,12 @@ export default function SpaceListItem({
 	layout = 'single_line',
 }: Props) {
 	const isTwoLine = layout === 'two_line';
+	// Pending rows keep their progress text ("Starting new session…") on the key
+	// line even in two-line layout — see `titleSharesKeyLine`.
+	const inlineTitle = titleSharesKeyLine({
+		isTwoLine,
+		isPending: space.isPending,
+	});
 	const baseStatusInfo = space.claudeStatus
 		? CLAUDE_STATUS_DISPLAY[space.claudeStatus]
 		: CLAUDE_STATUS_DISPLAY.unknown;
@@ -144,9 +151,9 @@ export default function SpaceListItem({
 	const twoLineIndent = twoLineTitleIndent(
 		emoji ? {emoji, width: emojiCells} : undefined,
 	);
-	const availableTitleWidth = isTwoLine
-		? Math.max(0, width - twoLineIndent)
-		: Math.max(0, width - fixedWidth);
+	const availableTitleWidth = inlineTitle
+		? Math.max(0, width - fixedWidth)
+		: Math.max(0, width - twoLineIndent);
 
 	// Truncate title (pending rows use their own title text)
 	// Show "Loading…" while the Linear issue title is being fetched
@@ -171,9 +178,9 @@ export default function SpaceListItem({
 	// for every glyph a variation selector can rescue. Titles are arbitrary user
 	// text and get no such treatment, so they still expand and still need (2).
 	const prefixInkPad = emojiSlot?.overflowCells ?? 0;
-	// The emoji only shares a line with the title in single-line layout; in
-	// two-line layout its expansion can't eat into the title's own row.
-	const titlePrefixInkPad = isTwoLine ? 0 : prefixInkPad;
+	// The emoji only shares a line with the title when the title is inline; on a
+	// dedicated title row its expansion can't eat into that row.
+	const titlePrefixInkPad = inlineTitle ? prefixInkPad : 0;
 	let truncatedTitle = truncateToWidth(
 		title,
 		availableTitleWidth - titlePrefixInkPad,
@@ -193,11 +200,17 @@ export default function SpaceListItem({
 	const rowWidth = rowInkPad > 0 ? Math.max(0, width - rowInkPad) : undefined;
 	// Two-line layout splits that correction across its two rows: the key row
 	// carries the emoji (and the rail it has to stay clear of), the title row
-	// carries only the title.
-	const keyLineWidth =
-		prefixInkPad > 0 ? Math.max(0, width - prefixInkPad) : undefined;
+	// carries only the title. With an inline title both land on the key row, so
+	// it takes the whole correction and the row below it is blank.
+	const keyLineWidth = inlineTitle
+		? rowWidth
+		: prefixInkPad > 0
+			? Math.max(0, width - prefixInkPad)
+			: undefined;
 	const titleLineWidth =
-		titleInkPad > 0 ? Math.max(0, width - titleInkPad) : undefined;
+		!inlineTitle && titleInkPad > 0
+			? Math.max(0, width - titleInkPad)
+			: undefined;
 
 	// Linear state color (applied to issue key)
 	// Uses the exact color from Linear's API so pappardelle always matches
@@ -315,7 +328,7 @@ export default function SpaceListItem({
 	);
 
 	const keyLine = (
-		<Box width={isTwoLine ? keyLineWidth : rowWidth}>
+		<Box width={keyLineWidth}>
 			{/* Profile emoji (NOT highlighted) — first cell on the row when set.
 			    Followed by a single space separator so it doesn't crash into the
 			    Claude status icon. */}
@@ -370,7 +383,7 @@ export default function SpaceListItem({
 
 			{/* Space + title (only if there's a title to show, and only when the
 			    title shares this row — two-line layout renders it below) */}
-			{!isTwoLine && truncatedTitle.length > 0 && (
+			{inlineTitle && truncatedTitle.length > 0 && (
 				<>
 					{hasIssueKey && (
 						<Text
@@ -401,9 +414,9 @@ export default function SpaceListItem({
 
 	if (!isTwoLine) return keyLine;
 
-	// The title row is always emitted, even when the title is empty, so every
-	// item occupies exactly two terminal rows — the scroll math and the
-	// mouse-click mapping both count on that being invariant.
+	// The title row is always emitted, even when the title is empty or already
+	// rendered inline, so every item occupies exactly two terminal rows — the
+	// scroll math and the mouse-click mapping both count on that being invariant.
 	return (
 		<Box flexDirection="column">
 			{keyLine}
@@ -411,7 +424,7 @@ export default function SpaceListItem({
 				<Text inverse={useBlinkInverse} color={textColor}>
 					{' '.repeat(twoLineIndent)}
 				</Text>
-				{renderTitle()}
+				{inlineTitle ? null : renderTitle()}
 			</Box>
 		</Box>
 	);

@@ -8,7 +8,7 @@ import {
 
 /**
  * The new-session flow used to be one keystroke: type a prompt, hit Enter, and
- * whatever profile the keywords happened to match is what you got — the only
+ * whatever profile the keywords happened to match is what you got, and the only
  * way to override it was to bend the prompt text around a keyword. This module
  * backs a second stage where that inferred profile is merely the *pre-selected*
  * entry in a list of every profile, so overriding costs an arrow key instead of
@@ -18,7 +18,7 @@ import {
  * without rendering Ink.
  */
 
-/** Rows of the picker visible at once — a screen-size compromise, not a limit. */
+/** Rows of the picker visible at once. Longer lists scroll. */
 export const PICKER_MAX_VISIBLE = 4;
 
 export type ProfileOption = {
@@ -32,7 +32,7 @@ export type ProfileOption = {
 	enforced: boolean;
 	/**
 	 * Ticket-rail emoji slot for this profile, with the rail's exact three-state
-	 * semantics — `undefined` for "nobody configured an emoji", `''` for "slot
+	 * semantics: `undefined` for "nobody configured an emoji", `''` for "slot
 	 * reserved but empty". Resolved here rather than in the component so the
 	 * picker and the rail always agree about which profile wears which glyph.
 	 */
@@ -44,9 +44,9 @@ export type ProfileOption = {
  * automatically first, then any other keyword matches by descending score, then
  * the rest in config declaration order.
  *
- * The tail is deliberately *not* sorted alphabetically — config order is the
- * order the user wrote their profiles in, which is the closest thing we have to
- * their own sense of priority.
+ * The tail keeps config declaration order rather than sorting alphabetically:
+ * that is the order the user wrote their profiles in, which is the closest thing
+ * we have to their own sense of priority.
  */
 export function buildProfileOptions(
 	config: PappardelleConfig,
@@ -89,7 +89,7 @@ export function buildProfileOptions(
 		}
 	}
 
-	// No keyword matched, so the automatic choice is the default profile — it
+	// No keyword matched, so the automatic choice is the default profile, which
 	// leads the list to keep Enter-Enter equivalent to the old single Enter.
 	if (ordered.length === 0) {
 		const option = toOption(defaultName, [], false);
@@ -109,12 +109,12 @@ export function buildProfileOptions(
 }
 
 export type PromptSubmit =
-	/** Blank input — stay where you are. */
+	/** Blank input: stay where you are. */
 	| {kind: 'none'}
 	/**
 	 * Spawn without showing the picker. Used for issue keys, bare numbers, and
 	 * Linear URLs, where the profile is resolved downstream by idow from the
-	 * fetched issue's tracker project — there is nothing meaningful to preselect.
+	 * fetched issue's tracker project, so there is nothing meaningful to preselect.
 	 */
 	| {kind: 'spawn'; profileName: string | null}
 	/** Advance to the picker with these options, index 0 preselected. */
@@ -149,7 +149,7 @@ export function resolvePromptSubmit(
 export type PickerWindow = {
 	start: number;
 	end: number;
-	/** Items scrolled off the top — drives the "↑ N more" affordance. */
+	/** Items scrolled off the top; drives the "↑ N more" affordance. */
 	above: number;
 	/** Items scrolled off the bottom. */
 	below: number;
@@ -192,7 +192,7 @@ type PickerKey = {
 };
 
 /**
- * Movement clamps rather than wraps, matching the main space list — arrowing
+ * Movement clamps rather than wraps, matching the main space list: arrowing
  * past the end of a four-item list should not silently teleport you back to the
  * profile you were trying to move away from.
  */
@@ -226,7 +226,7 @@ export function handleProfilePickerKey(
  * Which of the two stacked frames owns the double outline.
  *
  * Both boxes are on screen at all times, so the outline is the only thing
- * telling you where your keystrokes are going — the focused box gets the heavy
+ * telling you where your keystrokes are going. The focused box gets the heavy
  * double rule at full brightness, the idle one a dim round rule.
  */
 export function focusFrame(isFocused: boolean): {

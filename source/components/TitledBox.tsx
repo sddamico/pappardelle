@@ -6,16 +6,16 @@ type Props = {
 	title: string;
 	borderColor: string;
 	/**
-	 * Heading color. Required, and it should differ from `borderColor` — see the
+	 * Heading color. Required, and it should differ from `borderColor`. See the
 	 * comment on the top row below for why inheriting the frame's color breaks.
 	 */
 	titleColor: string;
 	borderStyle?: 'double' | 'round';
-	/** Fixed outer width, in cells. Required — the hand-drawn top edge can't flex. */
+	/** Fixed outer width, in cells. Required: the hand-drawn top edge can't flex. */
 	width: number;
 	/** Blank rows inside the top and bottom edges. */
 	paddingY?: number;
-	/** Render the frame and heading dimmed — used to mark an unfocused box. */
+	/** Render the frame and heading dimmed, marking an unfocused box. */
 	isDim?: boolean;
 	children: ReactNode;
 };
@@ -25,7 +25,7 @@ type Props = {
  *
  * The top rule is drawn by hand (see `titled-border.ts`) and the box below it
  * omits its own top border, so the two halves read as one frame. That means the
- * width can't be intrinsic the way a plain `<Box borderStyle>` is — callers must
+ * width can't be intrinsic the way a plain `<Box borderStyle>` is: callers must
  * pass an explicit `width`, and every child has to fit it.
  */
 export default function TitledBox({
@@ -50,7 +50,7 @@ export default function TitledBox({
 			 * Give the heading a color of its own rather than letting it inherit
 			 * the frame's. Ink elides an SGR it believes is already open, so a
 			 * heading painted the same color as the corner beside it ships as a
-			 * bare `ESC[1m` run — correct, but renderers that reset the
+			 * bare `ESC[1m` run. That is correct, but renderers that reset the
 			 * foreground on a bold-only run (`freeze`, some terminals) then draw
 			 * it uncolored. An explicit color is always emitted.
 			 */}
@@ -70,8 +70,8 @@ export default function TitledBox({
 			{/*
 			 * `key` forces a fresh node whenever the border style changes, and it is
 			 * load-bearing: Ink's `applyBorderStyles` guards its top-edge reset with
-			 * `if (style.borderTop !== false)`, so a box like this one — which always
-			 * sets `borderTop={false}` — never gets `setBorder(EDGE_TOP, …)` called
+			 * `if (style.borderTop !== false)`, so a box like this one, which always
+			 * sets `borderTop={false}`, never gets `setBorder(EDGE_TOP, …)` called
 			 * on restyle. Flip `borderStyle` on the surviving Yoga node and it keeps
 			 * a stale 1-cell top inset, which paints as a blank row between the
 			 * hand-drawn top rule and the first child. Remounting sidesteps it.

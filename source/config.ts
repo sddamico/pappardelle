@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import YAML from 'js-yaml';
+import {isBeadsIssueKey} from './issue-utils.ts';
 
 // ============================================================================
 // Types
@@ -44,8 +45,8 @@ export interface ClaudeConfig {
 	/**
 	 * Model to launch Claude with, forwarded verbatim to `claude --model`.
 	 * Accepts an alias ("opus", "sonnet", "fable") or a full model id
-	 * ("claude-opus-5[1m]") — deliberately unvalidated beyond "is a string",
-	 * since the set of valid names changes faster than this config schema.
+	 * ("claude-opus-5[1m]"). Unvalidated beyond "is a string", since the set of
+	 * valid names changes faster than this config schema.
 	 *
 	 * Absent ⇒ no `--model` flag is passed at all and Claude picks its own
 	 * default. Settable top-level and per-profile; see `getClaudeModel`.
@@ -54,7 +55,7 @@ export interface ClaudeConfig {
 	/**
 	 * Reasoning effort to launch Claude with, forwarded verbatim to
 	 * `claude --effort` (low, medium, high, xhigh, max at time of writing).
-	 * Unvalidated for the same reason as `model` — new levels ship on Claude
+	 * Unvalidated for the same reason as `model`: new levels ship on Claude
 	 * Code's schedule, not ours.
 	 *
 	 * Absent ⇒ no `--effort` flag is passed at all.
@@ -79,7 +80,7 @@ export interface VcsConfig {
 }
 
 export interface IssueTrackerConfig {
-	provider: 'linear' | 'jira';
+	provider: 'linear' | 'jira' | 'beads';
 	base_url?: string; // Required for jira
 }
 
@@ -105,6 +106,13 @@ export interface IssueWatchlistConfig {
 
 export interface TerminalConfig {
 	app?: string; // Default: "iTerm"
+}
+
+/** How each space is drawn in the TUI list. */
+export type ListLayout = 'single_line' | 'two_line';
+
+export interface ListViewConfig {
+	layout?: ListLayout;
 }
 
 export interface Profile {
@@ -207,6 +215,8 @@ export interface PappardelleConfig {
 	/** Commands to run before workspace deletion. If any fails, deletion is aborted. */
 	pre_workspace_deinit?: CommandConfig[];
 	terminal?: TerminalConfig;
+	/** How each space is drawn in the TUI list. Defaults per tracker. */
+	list_view?: ListViewConfig;
 	hooks?: HooksConfig;
 	keybindings?: KeybindingConfig[];
 	profiles: Record<string, Profile>;
@@ -308,6 +318,28 @@ export function getRepoRoot(): string {
 	} catch {
 		throw new Error('Not in a git repository');
 	}
+}
+
+let mainRepoRootCache: string | undefined;
+
+export function getMainRepoRoot(): string {
+	if (mainRepoRootCache !== undefined) return mainRepoRootCache;
+	mainRepoRootCache = resolveMainRepoRoot();
+	return mainRepoRootCache;
+}
+
+function resolveMainRepoRoot(): string {
+	try {
+		const commonDir = execSync(
+			'git rev-parse --path-format=absolute --git-common-dir',
+			{encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe']},
+		).trim();
+		if (commonDir) return path.dirname(commonDir.replace(/\/+$/, ''));
+	} catch {
+		// Fall through to the worktree root
+	}
+
+	return getRepoRoot();
 }
 
 /**
@@ -640,8 +672,14 @@ export function validateConfig(
 		} else {
 			const it = cfg['issue_tracker'] as Record<string, unknown>;
 			const {provider} = it;
-			if (provider !== 'linear' && provider !== 'jira') {
-				errors.push('issue_tracker.provider: must be "linear" or "jira"');
+			if (
+				provider !== 'linear' &&
+				provider !== 'jira' &&
+				provider !== 'beads'
+			) {
+				errors.push(
+					'issue_tracker.provider: must be "linear", "jira", or "beads"',
+				);
 			} else if (provider === 'jira' && typeof it['base_url'] !== 'string') {
 				errors.push('issue_tracker.base_url: required when provider is "jira"');
 			}
@@ -697,6 +735,22 @@ export function validateConfig(
 		typeof cfg['auto_remove_when_done'] !== 'boolean'
 	) {
 		errors.push('auto_remove_when_done: must be a boolean');
+	}
+
+	// Check list_view (optional; an absent layout defers to the tracker default)
+	if (cfg['list_view'] !== undefined) {
+		if (typeof cfg['list_view'] !== 'object' || cfg['list_view'] === null) {
+			errors.push('list_view: must be an object');
+		} else {
+			const listView = cfg['list_view'] as Record<string, unknown>;
+			if (
+				listView['layout'] !== undefined &&
+				listView['layout'] !== 'single_line' &&
+				listView['layout'] !== 'two_line'
+			) {
+				errors.push('list_view.layout: must be "single_line" or "two_line"');
+			}
+		}
 	}
 
 	// Check companion_command (optional, free-form shell command). Any string is
@@ -1434,6 +1488,43 @@ export function getProfileDefaultProject(profile: Profile): string | undefined {
 	return first === undefined || first === '' ? undefined : first;
 }
 
+export function readBeadsIssuePrefix(repoRoot?: string): string | undefined {
+	try {
+		const root = repoRoot ?? getMainRepoRoot();
+		const raw = fs.readFileSync(
+			path.join(root, '.beads', 'config.yaml'),
+			'utf-8',
+		);
+		const parsed = YAML.load(raw) as Record<string, unknown> | undefined;
+		const prefix = parsed?.['issue-prefix'];
+		return typeof prefix === 'string' && prefix.trim()
+			? prefix.trim()
+			: undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+export function getBeadsPrefixes(
+	config: PappardelleConfig,
+	beadsConfigPrefix?: string,
+): string[] {
+	const prefixes = new Set<string>();
+	const add = (value: string | undefined) => {
+		const trimmed = value?.trim().toLowerCase();
+		if (trimmed) prefixes.add(trimmed);
+	};
+
+	add(beadsConfigPrefix);
+	add(config.team_prefix);
+	for (const profile of Object.values(config.profiles ?? {})) {
+		add(profile.team_prefix);
+		for (const project of profile.tracker_projects ?? []) add(project);
+	}
+
+	return [...prefixes];
+}
+
 // Issue-key patterns used to short-circuit keyword matching and return the default profile.
 const DETERMINE_PROFILE_ISSUE_KEY = /^[A-Z][A-Z0-9]*-\d+$/;
 const DETERMINE_PROFILE_ISSUE_NUMBER = /^\d+$/;
@@ -1492,7 +1583,12 @@ export function determineProfileForInput(
 	if (
 		DETERMINE_PROFILE_ISSUE_KEY.test(trimmed) ||
 		DETERMINE_PROFILE_ISSUE_NUMBER.test(trimmed) ||
-		DETERMINE_PROFILE_LINEAR_URL.test(trimmed)
+		DETERMINE_PROFILE_LINEAR_URL.test(trimmed) ||
+		(config.issue_tracker?.provider === 'beads' &&
+			isBeadsIssueKey(
+				trimmed,
+				getBeadsPrefixes(config, readBeadsIssuePrefix()),
+			))
 	) {
 		return {kind: 'deferred', displayName: DEFERRED_PROFILE_DISPLAY_NAME};
 	}
@@ -1659,14 +1755,14 @@ export function getDangerouslySkipPermissions(
 /**
  * Resolve one of the pass-through Claude launch flags for a workspace.
  *
- * Resolution order — per-profile value → top-level value → `''`. The profile is
+ * Resolution order: per-profile value, then top-level value, then `''`. The profile is
  * matched from `issueTitle` the same way `getCompanionCommand` does it, so a
  * space with no title (the main worktree, or a call site that doesn't have one
  * handy) simply gets the top-level value.
  *
  * The profile layer wins whenever the *key is present*, not merely when it's
  * truthy. That's what makes `model: ""` on a profile mean "ignore the global
- * model, launch with Claude's default" rather than "no opinion" — the same
+ * model, launch with Claude's default" rather than "no opinion", the same
  * empty-string-is-meaningful convention `companion_command` uses.
  *
  * `''` is the universal "don't pass this flag" signal: callers omit the flag
@@ -1689,7 +1785,7 @@ function resolveClaudeLaunchField(
 
 /**
  * Get the Claude model to launch a workspace with (`claude --model <value>`).
- * Returns '' when no model is configured — pass no flag at all in that case.
+ * Returns '' when no model is configured; pass no flag at all in that case.
  */
 export function getClaudeModel(
 	config: PappardelleConfig,
@@ -1794,6 +1890,14 @@ export function getResolvedWatchlists(
  */
 export function getAutoRemoveWhenDone(config: PappardelleConfig): boolean {
 	return config.auto_remove_when_done ?? false;
+}
+
+export function getListLayout(config: PappardelleConfig | null): ListLayout {
+	const explicit = config?.list_view?.layout;
+	if (explicit) return explicit;
+	return config?.issue_tracker?.provider === 'beads'
+		? 'two_line'
+		: 'single_line';
 }
 
 /**

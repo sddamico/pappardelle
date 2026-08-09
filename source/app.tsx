@@ -54,6 +54,8 @@ import {
 } from './session-routing.ts';
 import {
 	loadConfig,
+	getBeadsPrefixes,
+	readBeadsIssuePrefix,
 	getTeamPrefix,
 	getRepoRoot,
 	getRepoName,
@@ -61,6 +63,7 @@ import {
 	getKeybindings,
 	getResolvedWatchlists,
 	getAutoRemoveWhenDone,
+	getListLayout,
 	expandTemplate,
 	buildWorkspaceTemplateVars,
 	matchProfiles,
@@ -763,7 +766,8 @@ export default function App({
 		}
 	};
 
-	// Open the Linear/Jira issue in browser for the selected space
+	// Open the issue for the selected space — in a browser for trackers with a
+	// web UI, in a tmux popup for local-only ones (beads).
 	const handleOpenIssue = () => {
 		const space = spaces[selectedIndex];
 		if (!space || space.isPending || space.isMainWorktree) {
@@ -773,7 +777,17 @@ export default function App({
 		}
 
 		try {
-			const url = createIssueTracker().buildIssueUrl(space.name);
+			const tracker = createIssueTracker();
+			if (tracker.openIssue) {
+				const shown = tracker.openIssue(space.name);
+				setHeaderWithTimeout(
+					shown ? `Showing ${space.name}` : 'Cannot show issue outside tmux',
+					3000,
+				);
+				return;
+			}
+
+			const url = tracker.buildIssueUrl(space.name);
 			spawn('open', [url], {detached: true, stdio: 'ignore'}).unref();
 			setHeaderWithTimeout(`Opened ${space.name}`, 3000);
 		} catch {
@@ -1113,7 +1127,10 @@ export default function App({
 
 		const child = spawn(
 			path.join(SCRIPTS_DIR, 'idow'),
-			buildNewSessionArgs(pending.idowArg, {profileName: pending.profileName}),
+			buildNewSessionArgs(pending.idowArg, {
+				profileName: pending.profileName,
+				existingIssue: pending.existingIssue,
+			}),
 			{
 				detached: true,
 				stdio: ['ignore', 'pipe', 'pipe'],
@@ -1248,6 +1265,7 @@ export default function App({
 							type: 'issue',
 							name: issue.identifier,
 							idowArg: issue.identifier,
+							existingIssue: true,
 							pendingTitle: `Watchlist: ${issue.title}`,
 							prevSpaceCount: spacesLengthRef.current,
 							// Force the owning profile so idow runs the right
@@ -1603,7 +1621,11 @@ export default function App({
 	// profileName is whatever the PromptDialog displayed — we forward
 	// it to idow via --profile so the runtime selection can't diverge from the
 	// UI preview.
-	const handleNewSession = (input: string, profileName: string | null) => {
+	const handleNewSession = (
+		input: string,
+		profileName: string | null,
+		existingIssue = false,
+	) => {
 		setShowPromptDialog(false);
 
 		// Try to normalize as an issue identifier (supports bare numbers like '400')
@@ -1616,7 +1638,14 @@ export default function App({
 		}
 
 		const teamPrefix = config ? getTeamPrefix(config) : 'STA';
-		const normalizedIssueKey = normalizeIssueIdentifier(input, teamPrefix);
+		const normalizedIssueKey = existingIssue
+			? input.trim()
+			: normalizeIssueIdentifier(
+					input,
+					teamPrefix,
+					createIssueTracker().name,
+					config ? getBeadsPrefixes(config, readBeadsIssuePrefix()) : undefined,
+				);
 
 		// Route the session: always pass just the issue key (or description) to idow.
 		// idow handles both new and existing issues correctly with a bare issue key.
@@ -1625,6 +1654,7 @@ export default function App({
 			type: route.type,
 			name: route.issueKey ?? '',
 			idowArg: route.issueKey ?? input,
+			existingIssue,
 			pendingTitle: route.pendingTitle,
 			prevSpaceCount: spaces.length,
 			profileName,
@@ -1756,6 +1786,11 @@ export default function App({
 		? searchSelectedIndex
 		: displaySelectedIndex;
 
+	// Two-line rows halve how many spaces fit on screen, so the layout has to
+	// feed the scroll math rather than being a purely cosmetic render choice.
+	const listLayout = getListLayout(configMemo);
+	const linesPerItem = listLayout === 'two_line' ? 2 : 1;
+
 	// Calculate scroll offset for large lists
 	const {
 		scrollOffset,
@@ -1765,6 +1800,7 @@ export default function App({
 		activeSelectedIndex,
 		activeSpaces.length,
 		termHeight,
+		linesPerItem,
 	);
 	const visibleDisplaySpaces = activeSpaces.slice(
 		scrollOffset,
@@ -1793,6 +1829,7 @@ export default function App({
 				y: event.y,
 				bannerHeight,
 				visibleRows: visibleDisplaySpaces.length,
+				linesPerItem,
 			});
 			if (clickedRow === null) return;
 
@@ -1824,6 +1861,7 @@ export default function App({
 			visibleDisplaySpaces.length,
 			pendingInsertIndex,
 			bannerHeight,
+			linesPerItem,
 		],
 	);
 
@@ -1861,6 +1899,7 @@ export default function App({
 						space={space}
 						isSelected={index === adjustedDisplayIndex}
 						width={termDimensions.cols}
+						layout={listLayout}
 					/>
 				))}
 			</Box>

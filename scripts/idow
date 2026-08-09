@@ -4,7 +4,7 @@
 #
 # A command-line tool that sets up a development workspace.
 #
-# Usage: idow [--resume] [--open] [--profile <name>] <input>
+# Usage: idow [--resume] [--open] [--profile <name>] [--existing-issue] <input>
 #   Input can be:
 #     - Issue key:   idow STA-123 | idow 123
 #     - Linear URL:  idow https://linear.app/stardust-labs/issue/STA-123
@@ -103,6 +103,7 @@ if [[ "$1" == "--help" || "$1" == "-h" ]]; then
     echo "  --resume          Open workspace without prompting Claude (for continuing work)"
     echo "  --open            Also open apps, links, iTerm, and run commands (skipped by default)"
     echo "  --profile <name>  Force a specific profile from .pappardelle.yml"
+    echo "  --existing-issue  Input is an issue key the caller already fetched; skip input detection"
     exit 0
 fi
 
@@ -352,6 +353,13 @@ if [[ "$1" == "--profile" ]]; then
     fi
 fi
 
+# Check for --existing-issue flag
+EXISTING_ISSUE=false
+if [[ "$1" == "--existing-issue" ]]; then
+    EXISTING_ISSUE=true
+    shift
+fi
+
 # Collect input from all arguments
 INPUT="$*"
 
@@ -380,17 +388,27 @@ ISSUE_KEY=""
 DESCRIPTION=""
 IS_NEW_ISSUE=false
 
-if [[ "$INPUT" =~ ^https://linear\.app/.*/issue/([A-Z][A-Z0-9]*-[0-9]+) ]]; then
+if [[ "$EXISTING_ISSUE" == "true" ]]; then
+    ISSUE_KEY="$INPUT"
+    log "Caller-supplied issue key: $ISSUE_KEY"
+elif [[ "$INPUT" =~ ^https://linear\.app/.*/issue/([A-Z][A-Z0-9]*-[0-9]+) ]]; then
     # Linear URL
     ISSUE_KEY="${BASH_REMATCH[1]}"
     log "Detected Linear URL, issue key: $ISSUE_KEY"
+elif [[ "$TRACKER_PROVIDER" == "beads" ]] && is_beads_issue_key "$INPUT" "$CONFIG_PATH"; then
+    ISSUE_KEY=$(echo "$INPUT" | tr '[:upper:]' '[:lower:]')
+    log "Detected beads issue ID: $ISSUE_KEY"
 elif [[ "$INPUT" =~ ^[A-Z][A-Z0-9]*-[0-9]+$ ]]; then
     # Full issue key (e.g., STA-123)
     ISSUE_KEY="$INPUT"
     log "Detected full issue key: $ISSUE_KEY"
 elif [[ "$INPUT" =~ ^[0-9]+$ ]]; then
     # Just a number (e.g., 123) - use configured team prefix
-    ISSUE_KEY="${TEAM_PREFIX}-$INPUT"
+    if [[ "$TRACKER_PROVIDER" == "beads" ]]; then
+        ISSUE_KEY="$(echo "$TEAM_PREFIX" | tr '[:upper:]' '[:lower:]')-$INPUT"
+    else
+        ISSUE_KEY="${TEAM_PREFIX}-$INPUT"
+    fi
     log "Detected number, assuming issue key: $ISSUE_KEY"
 else
     # It's a description - we'll create a new issue
@@ -557,8 +575,15 @@ else
     fi
 fi
 
-# Extract issue number for template variable expansion (e.g., STA-595 → 595)
-ISSUE_NUMBER=$(echo "$ISSUE_KEY" | grep -oE '[0-9]+' || echo "")
+# Extract issue number for template variable expansion (e.g., STA-595 → 595).
+if [[ "$TRACKER_PROVIDER" == "beads" ]]; then
+    ISSUE_NUMBER=""
+else
+    # Everything after the last hyphen, not the first digit run: Jira project
+    # keys may carry digits of their own, and scanning left-to-right turned
+    # A1B-234 into the plausible-looking but wrong "1".
+    ISSUE_NUMBER="${ISSUE_KEY##*-}"
+fi
 
 # Template expansion helpers for profile-driven steps
 # Defined here (before Step 5) because worktree config may use template variables.
@@ -716,6 +741,7 @@ else
         --title "$TITLE" \
         --worktree "$WORKTREE_PATH" \
         --config "$CONFIG_PATH" \
+        --issue-url "$ISSUE_URL" \
         --prompt "$DESCRIPTION") || {
         print_warning "Failed to create PR/MR"
         PR_URL=""
@@ -747,7 +773,11 @@ fi
 if [[ -n "$CLAUDE_EFFORT" ]]; then
     CLAUDE_SESSION_ARGS+=(--effort "$CLAUDE_EFFORT")
 fi
-CLAUDE_SESSION_NAME="claude-${REPO_NAME}-${ISSUE_KEY}"
+# Matches the '.' → '_' encoding in start-claude-session.sh and
+# getSessionNames(); see the comment there.
+SESSION_KEY="${ISSUE_KEY//_/__}"
+SESSION_KEY="${SESSION_KEY//./_}"
+CLAUDE_SESSION_NAME="claude-${REPO_NAME}-${SESSION_KEY}"
 # Per-issue claude/companion sessions live on a dedicated tmux socket so the
 # Pappardelle viewer pane can attach without TMUX=. See STA-860.
 PAPPARDELLE_TMUX_SOCKET="${PAPPARDELLE_TMUX_SOCKET:-pappardelle_inner}"

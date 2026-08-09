@@ -55,6 +55,25 @@ test('a state color near the terminal background can no longer set the highlight
 	t.not(row.keyColor, NEAR_BACKGROUND);
 });
 
+test('a bright-black state color never reaches the key, on any row', t => {
+	// Solarized and its descendants map ANSI 8 to the background itself, so an
+	// unselected key painted 'gray' rendered background-on-background and only
+	// appeared once selection inverted it. Falling back to no color puts it in
+	// the terminal's default foreground, which contrasts by construction.
+	for (const stateColor of ['gray', 'grey', 'blackBright']) {
+		t.is(
+			resolveRowHighlight({...base, stateColor}).keyColor,
+			undefined,
+			`unselected, state color ${stateColor}`,
+		);
+		t.is(
+			resolveRowHighlight({...base, needsAttention: true, stateColor}).keyColor,
+			undefined,
+			`attention off-phase, state color ${stateColor}`,
+		);
+	}
+});
+
 test('attention blink still owns the row and outranks selection', t => {
 	const approval = resolveRowHighlight({
 		...base,

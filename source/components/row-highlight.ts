@@ -36,6 +36,21 @@ export interface RowHighlight {
 	titleColor: string | undefined;
 }
 
+/**
+ * State colors that mean "this issue has no color worth showing" rather than
+ * naming a real one. They all resolve to ANSI 8, which Solarized — and every
+ * palette derived from it — defines as the *background*, so a key painted with
+ * one is invisible until selection inverts it.
+ *
+ * The key falls back to the terminal's default foreground rather than to a dim
+ * of it: SGR 2 is a blend toward the background, which on a low-contrast theme
+ * lands the row's primary identity around 2:1 against the pane, and Ink drops
+ * the key's `bold` when both are set (they share reset code 22). Muted here
+ * means "carries no state color", not "drawn faintly" — dimming is left to the
+ * title and the rail, which are chrome and can afford to recede.
+ */
+const BACKGROUND_RISK_COLORS = new Set(['gray', 'grey', 'blackBright']);
+
 export function resolveRowHighlight(input: RowHighlightInput): RowHighlight {
 	const useBlinkInverse = input.needsAttention && input.blinkOn;
 	const useSelectionInverse = input.isSelected && !useBlinkInverse;
@@ -56,7 +71,10 @@ export function resolveRowHighlight(input: RowHighlightInput): RowHighlight {
 	// foreground instead, the one pairing guaranteed to contrast on both light
 	// and dark themes. The state color still owns the key on unselected rows,
 	// where it is a foreground and carries its normal meaning.
-	const keyColor = useSelectionInverse ? undefined : input.stateColor;
+	const keyColor =
+		useSelectionInverse || BACKGROUND_RISK_COLORS.has(input.stateColor)
+			? undefined
+			: input.stateColor;
 	const titleColor = useSelectionInverse ? undefined : textColor;
 
 	return {

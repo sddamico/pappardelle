@@ -61,7 +61,9 @@ export default function SpaceListItem({
 		space.claudeStatus === 'waiting_for_approval' &&
 		space.claudeTool === 'AskUserQuestion';
 
-	const statusInfo = isQuestion ? {color: 'blue', icon: '?'} : baseStatusInfo;
+	const statusInfo = isQuestion
+		? {color: 'blue', icon: '?', dim: false}
+		: baseStatusInfo;
 
 	// Pending rows always show the animation spinner
 	const isWorking =
@@ -277,7 +279,8 @@ export default function SpaceListItem({
 					{' '}
 				</Text>
 				<Text
-					color={useBlinkInverse ? textColor : 'gray'}
+					color={useBlinkInverse ? textColor : undefined}
+					dimColor={!useBlinkInverse}
 					inverse={useBlinkInverse}
 				>
 					{`(${commentCount})`}
@@ -356,6 +359,7 @@ export default function SpaceListItem({
 				) : (
 					<Text
 						color={useBlinkInverse ? textColor : statusInfo.color}
+						dimColor={!useBlinkInverse && (statusInfo.dim ?? false)}
 						inverse={useBlinkInverse}
 					>
 						{statusInfo.icon ?? '?'}

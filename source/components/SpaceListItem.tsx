@@ -15,6 +15,7 @@ import {
 import {inkRenderPad, resolveEmojiSlot} from '../emoji-rail-width.ts';
 import {truncateToWidth} from '../truncate-to-width.ts';
 import type {ListLayout} from '../config.ts';
+import {resolveRowHighlight} from './row-highlight.ts';
 import ClaudeAnimation from './ClaudeAnimation.tsx';
 
 interface Props {
@@ -216,14 +217,14 @@ export default function SpaceListItem({
 	};
 	const stateColor = getStateColor();
 
-	// Determine highlight mode:
-	// - needsAttention + blinkOn: blink color (blue for question, red for approval)
-	// - isSelected (and not blinking): white background via inverse
-	// - needsAttention + isSelected + !blinkOn: white background (blink off-phase)
-	const useBlinkInverse = needsAttention && blinkOn;
-	const useSelectionInverse = isSelected && !useBlinkInverse;
-	const useInverse = useBlinkInverse || useSelectionInverse;
-	const textColor = useBlinkInverse ? (isQuestion ? 'blue' : 'red') : undefined;
+	const {useBlinkInverse, useInverse, textColor, keyColor, titleColor} =
+		resolveRowHighlight({
+			isSelected,
+			needsAttention,
+			blinkOn,
+			isQuestion,
+			stateColor,
+		});
 
 	const renderPipelineIcon = () => {
 		if (!pipeline) return null;
@@ -308,81 +309,92 @@ export default function SpaceListItem({
 			dimColor={!useInverse}
 			wrap="truncate"
 			inverse={useInverse}
-			color={useSelectionInverse ? stateColor : textColor}
+			color={titleColor}
 		>
 			{truncatedTitle}
 		</Text>
 	);
 
 	const keyLine = (
-		<Box width={keyLineWidth}>
-			{/* Profile emoji (NOT highlighted) — first cell on the row when set.
-			    Followed by a single space separator so it doesn't crash into the
-			    Claude status icon. */}
-			{emoji ? (
-				<>
-					<Text inverse={useBlinkInverse} color={textColor}>
-						{emoji}
-					</Text>
-					{emojiNeedsSeparator ? (
+		<Box width={keyLineWidth} overflowX="hidden">
+			{/* Identity cluster: emoji, status icon and issue key. `flexShrink={0}`
+			    is load-bearing — `width` is the pane width pappardelle *believes*
+			    it has, and when that overshoots the pane Ink actually renders into,
+			    Yoga's default shrink squeezes every cell here at once: the status
+			    icon disappears, the separators collapse and the issue key is chopped
+			    mid-string with the remainder spilling onto extra lines. Refusing to
+			    shrink keeps the row's identity intact and pushes all give onto the
+			    title, which is the one part that can truncate meaningfully. */}
+			<Box flexShrink={0}>
+				{/* Profile emoji (NOT highlighted) — first cell on the row when set.
+				    Followed by a single space separator so it doesn't crash into the
+				    Claude status icon. */}
+				{emoji ? (
+					<>
 						<Text inverse={useBlinkInverse} color={textColor}>
-							{' '}
+							{emoji}
 						</Text>
-					) : null}
-				</>
-			) : null}
-			{/* Status icon (NOT highlighted, always shows its own color) */}
-			{isWorking ? (
-				<ClaudeAnimation
-					color={
-						useBlinkInverse
-							? textColor
-							: space.isPending
-								? COLORS.CLAUDE_ORANGE
-								: statusInfo.color
-					}
-					inverse={useBlinkInverse}
-				/>
-			) : (
-				<Text
-					color={useBlinkInverse ? textColor : statusInfo.color}
-					inverse={useBlinkInverse}
-				>
-					{statusInfo.icon ?? '?'}
+						{emojiNeedsSeparator ? (
+							<Text inverse={useBlinkInverse} color={textColor}>
+								{' '}
+							</Text>
+						) : null}
+					</>
+				) : null}
+				{/* Status icon (NOT highlighted, always shows its own color) */}
+				{isWorking ? (
+					<ClaudeAnimation
+						color={
+							useBlinkInverse
+								? textColor
+								: space.isPending
+									? COLORS.CLAUDE_ORANGE
+									: statusInfo.color
+						}
+						inverse={useBlinkInverse}
+					/>
+				) : (
+					<Text
+						color={useBlinkInverse ? textColor : statusInfo.color}
+						inverse={useBlinkInverse}
+					>
+						{statusInfo.icon ?? '?'}
+					</Text>
+				)}
+
+				{/* Space after status icon (NOT highlighted) */}
+				<Text inverse={useBlinkInverse} color={textColor}>
+					{' '}
 				</Text>
-			)}
 
-			{/* Space after status icon (NOT highlighted) */}
-			<Text inverse={useBlinkInverse} color={textColor}>
-				{' '}
-			</Text>
+				{/* Issue key badge (colored by Linear state, highlighted when selected) */}
+				{hasIssueKey && (
+					<Text
+						color={useBlinkInverse ? textColor : keyColor}
+						bold
+						inverse={useInverse}
+					>
+						{issueKey}
+					</Text>
+				)}
 
-			{/* Issue key badge (colored by Linear state, highlighted when selected) */}
-			{hasIssueKey && (
-				<Text
-					color={useBlinkInverse ? textColor : stateColor}
-					bold
-					inverse={useInverse}
-				>
-					{issueKey}
-				</Text>
-			)}
+				{/* Separator between key and title. Sits in the fixed cluster rather
+				    than the title box so an overflowing row can't squeeze it away and
+				    weld the title onto the issue key. Only when the title shares this
+				    row — the two-line layout indents its title line instead. */}
+				{hasIssueKey && inlineTitle && truncatedTitle.length > 0 && (
+					<Text dimColor={!useInverse} inverse={useInverse} color={titleColor}>
+						{' '}
+					</Text>
+				)}
+			</Box>
 
-			{/* Space + title (only if there's a title to show, and only when the
-			    title shares this row — two-line layout renders it below) */}
+			{/* Title (only if there's a title to show, and only when the title
+			    shares this row — two-line layout renders it below) */}
 			{inlineTitle && truncatedTitle.length > 0 && (
-				<>
-					{hasIssueKey && (
-						<Text
-							dimColor={!useInverse}
-							inverse={useInverse}
-							color={useSelectionInverse ? stateColor : textColor}
-						>
-							{' '}
-						</Text>
-					)}
+				<Box flexShrink={1} minWidth={0}>
 					{renderTitle()}
-				</>
+				</Box>
 			)}
 
 			{/* Rail icons — right-aligned: unresolved comment count, then the
@@ -390,7 +402,7 @@ export default function SpaceListItem({
 			    right. Pushed right by a flex spacer that consumes whatever
 			    leftover width remains. */}
 			{pipeline !== null || commentCount > 0 || hasConflict ? (
-				<Box flexGrow={1} justifyContent="flex-end">
+				<Box flexGrow={1} flexShrink={0} justifyContent="flex-end">
 					{renderCommentCount()}
 					{renderConflictIcon()}
 					{renderPipelineIcon()}
@@ -404,11 +416,17 @@ export default function SpaceListItem({
 	return (
 		<Box flexDirection="column">
 			{keyLine}
-			<Box width={titleLineWidth}>
-				<Text inverse={useBlinkInverse} color={textColor}>
-					{' '.repeat(twoLineIndent)}
-				</Text>
-				{inlineTitle ? null : renderTitle()}
+			<Box width={titleLineWidth} overflowX="hidden">
+				<Box flexShrink={0}>
+					<Text inverse={useBlinkInverse} color={textColor}>
+						{' '.repeat(twoLineIndent)}
+					</Text>
+				</Box>
+				{inlineTitle ? null : (
+					<Box flexShrink={1} minWidth={0}>
+						{renderTitle()}
+					</Box>
+				)}
 			</Box>
 		</Box>
 	);

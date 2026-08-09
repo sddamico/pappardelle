@@ -9,7 +9,7 @@
 # The TS side resolves the same fields via getClaudeModel()/getClaudeEffort()
 # in source/config.ts, and source/claude-launch-config.test.ts pins that half.
 # The two resolvers run in different languages and must agree, so this file
-# pins the bash half — most importantly the empty-string semantics, where a
+# pins the bash half, most importantly the empty-string semantics, where a
 # profile-level "" means "clear the inherited value" rather than "no opinion".
 #
 # Usage: ./test-claude-model-effort.sh
@@ -48,7 +48,7 @@ assert_eq() {
     fi
 }
 
-# Run the real resolver. Args: [--profile <name>] — config paths are wired to
+# Run the real resolver. Args: [--profile <name>]. Config paths are wired to
 # whatever setup_configs() last wrote.
 resolve() {
     "$SCRIPT_DIR/resolve-claude-config.sh" \
@@ -276,13 +276,13 @@ cleanup; unset TMPDIR_ROOT
 # repo, and live providers), so pin its wiring by inspection instead. It shipped
 # without --home-config on either call site, which silently dropped the home
 # layer for everyone launching a workspace while the TUI's loadConfig() honored
-# it — the two resolvers disagreeing is the exact failure this file exists to
+# it, since the two resolvers disagreeing is the exact failure this file exists to
 # prevent.
 
 echo -e "\n${BOLD}Test: idow passes the home layer to the resolver${RESET}"
 # `|| true` on both counts: grep -c exits 1 when it matches nothing, and this
 # file runs under `set -e`. Without it the regression case this test exists to
-# catch — zero calls carrying --home-config — kills the suite mid-test instead
+# catch (zero calls carrying --home-config) kills the suite mid-test instead
 # of failing it, printing no FAIL line, no summary, and silently skipping every
 # test block below.
 IDOW_CALLS=$(grep -c 'resolve-claude-config\.sh"' "$SCRIPT_DIR/idow" || true)
@@ -327,7 +327,7 @@ cleanup; unset TMPDIR_ROOT
 # open-iterm-claude.sh builds its own flag string because the command is
 # assembled inside AppleScript. Values are printf %q'd here (safe for the inner
 # `sh -c` tmux runs) and the whole string is then passed through AppleScript's
-# `quoted form of` (safe for the outer shell iTerm types into) — so nothing is
+# `quoted form of` (safe for the outer shell iTerm types into), so nothing is
 # rejected or dropped, however exotic. Pin both the clean and the hostile case.
 
 echo -e "\n${BOLD}Test: open-iterm-claude.sh launch flags${RESET}"
@@ -347,7 +347,7 @@ assert_eq "provider-prefixed model id needs no escaping" " --model bedrock/anthr
 # Glob characters in a model id must reach claude literally, not be expanded.
 assert_eq "bracketed model id is escaped for the inner shell" ' --model claude-opus-5\[1m\]' \
     "$(iterm_flags --model 'claude-opus-5[1m]')"
-# The value is neutralized by quoting rather than discarded — no silent drop.
+# The value is neutralized by quoting rather than discarded, with no silent drop.
 assert_eq "shell-hostile value is escaped, not dropped" ' --model ev\"il\;\ rm\ -rf\ /' \
     "$(iterm_flags --model 'ev"il; rm -rf /')"
 assert_eq "a space-containing model still leaves a valid effort" ' --model bad\ value --effort high' \

@@ -145,6 +145,14 @@ else
     print_info "Install with: brew tap raegislabs/linctl && brew install linctl"
 fi
 
+# Optional: check bd
+if command -v bd &>/dev/null; then
+    print_status "bd installed (Beads integration)"
+else
+    print_info "bd not found (optional, for Beads integration)"
+    print_info "Install from: https://github.com/gastownhall/beads"
+fi
+
 # Optional: check gh
 if command -v gh &>/dev/null; then
     print_status "gh CLI installed (GitHub integration)"
@@ -246,9 +254,15 @@ if [[ -d "$HOOKS_SRC" ]]; then
     mkdir -p "$HOOKS_DIR"
 
     # Copy hook scripts
+    for src in "$HOOKS_SRC"/*.py; do
+        hook="$(basename "$src")"
+        if [[ -f "$src" && "$hook" != test_* ]]; then
+            cp "$src" "$HOOKS_DIR/"
+        fi
+    done
+
     for hook in update-status.py comment-question-answered.py zap-notification.py; do
-        if [[ -f "$HOOKS_SRC/$hook" ]]; then
-            cp "$HOOKS_SRC/$hook" "$HOOKS_DIR/"
+        if [[ -f "$HOOKS_DIR/$hook" ]]; then
             chmod +x "$HOOKS_DIR/$hook"
         fi
     done

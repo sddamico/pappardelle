@@ -6,7 +6,7 @@
  *
  * The result is split into three pieces rather than one string so the caller can
  * style the title differently from the rule around it (bold white heading on a
- * green frame) — Ink can only vary style across separate `<Text>` nodes.
+ * green frame); Ink can only vary style across separate `<Text>` nodes.
  */
 
 type BorderStyleName = 'double' | 'round';
@@ -20,11 +20,11 @@ const BORDER_CHARS: Record<
 };
 
 export type TitledBorderTop = {
-	/** Top-left corner glyph — styled as border. */
+	/** Top-left corner glyph, styled as border. */
 	prefix: string;
-	/** ` Title ` — styled as heading. Empty when there is no room (or no title). */
+	/** ` Title `, styled as heading. Empty when there is no room (or no title). */
 	label: string;
-	/** Horizontal fill plus the top-right corner — styled as border. */
+	/** Horizontal fill plus the top-right corner, styled as border. */
 	suffix: string;
 };
 

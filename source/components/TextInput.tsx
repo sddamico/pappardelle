@@ -11,6 +11,7 @@ type Props = {
 	placeholder?: string;
 	isFocused?: boolean;
 	isShowingCursor?: boolean;
+	reservedChars?: readonly string[];
 };
 
 /**
@@ -33,6 +34,7 @@ export default function TextInput({
 	placeholder = '',
 	isFocused = true,
 	isShowingCursor = true,
+	reservedChars,
 	onChange,
 	onSubmit,
 }: Props) {
@@ -79,6 +81,10 @@ export default function TextInput({
 
 	useRawInput(
 		(input, key) => {
+			if (reservedChars?.includes(input) && !key.ctrl && !key.meta) {
+				return;
+			}
+
 			const result = handleTextInputKey(
 				originalValue,
 				cursorOffset,

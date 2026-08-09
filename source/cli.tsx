@@ -21,6 +21,8 @@ import {
 	getRepoName,
 	loadConfig,
 	loadProviderConfigs,
+	getBeadsPrefixes,
+	readBeadsIssuePrefix,
 	getTeamPrefix,
 	ConfigNotFoundError,
 	ConfigValidationError,
@@ -206,7 +208,12 @@ if (cli.input.length > 0) {
 	}
 
 	const teamPrefix = config ? getTeamPrefix(config) : 'STA';
-	const normalizedIssueKey = normalizeIssueIdentifier(prompt, teamPrefix);
+	const normalizedIssueKey = normalizeIssueIdentifier(
+		prompt,
+		teamPrefix,
+		createIssueTracker().name,
+		config ? getBeadsPrefixes(config, readBeadsIssuePrefix()) : undefined,
+	);
 	const finalPrompt = normalizedIssueKey ?? prompt;
 
 	console.log(`Starting new session with: "${finalPrompt}"`);

@@ -3,17 +3,17 @@
 // The reason this file exists at all: Ink measures and draws an emoji with two
 // *different* width functions, and for one class of emoji they disagree.
 //
-//   - Layout (Yoga) sizes a <Text> box at `widest-line` — i.e. Ink's bundled
-//     `string-width` — which reports ✨ (U+2728) as 2 cells.
+//   - Layout (Yoga) sizes a <Text> box at `widest-line` (Ink's bundled
+//     `string-width`), which reports ✨ (U+2728) as 2 cells.
 //   - The cell-writer (ink/build/output.js) advances by 2 columns for a
 //     character only when `char.fullWidth || char.value.length > 1`.
 //
-// A single-BMP, default-emoji-presentation symbol — ✨ U+2728, ⭐ U+2B50,
-// ✅ U+2705, ⚡ U+26A1 … — is one code unit (`value.length === 1`) and is not
+// A single-BMP, default-emoji-presentation symbol (✨ U+2728, ⭐ U+2B50,
+// ✅ U+2705, ⚡ U+26A1 …) is one code unit (`value.length === 1`) and is not
 // East-Asian-wide (`fullWidth === false`), so the writer draws it as **1** cell
 // and pads the 2-cell layout box with a trailing space. Astral emoji
-// (🍝 U+1F35D — a surrogate pair, length 2) and VS16-qualified emoji
-// (⚙️ U+2699 U+FE0F — a second cell) clear the writer's checks; text-default
+// (🍝 U+1F35D, a surrogate pair of length 2) and VS16-qualified emoji
+// (⚙️ U+2699 U+FE0F, a second cell) clear the writer's checks; text-default
 // symbols Ink lays out as 1 cell (❤ U+2764, ✂ U+2702) match the writer. None
 // of those get padded.
 //
@@ -24,14 +24,14 @@
 // The pad is not just cosmetic, though: it is a real character the terminal
 // draws *in addition to* the two columns it paints the glyph in, so the emitted
 // row runs one column past the box it was laid out in. STA-1861 closes that gap
-// at the source — `resolveEmojiSlot` runs the glyph through
+// at the source: `resolveEmojiSlot` runs the glyph through
 // `normalizeRailEmoji`, which appends U+FE0F so the writer advances the full
 // two cells and leaves nothing behind. Rail emoji therefore no longer expand
 // past their layout; arbitrary text (issue titles) still can, which is why
 // `inkRenderPad` remains in use for those.
 //
-// Both sides are measured the way Ink itself measures them — `widest-line` for
-// the layout box and `@alcalzone/ansi-tokenize` for the writer — rather than
+// Both sides are measured the way Ink itself measures them (`widest-line` for
+// the layout box, `@alcalzone/ansi-tokenize` for the writer) rather than
 // pappardelle's own (newer) `string-width`, whose width tables differ from
 // Ink's bundled copy for exactly these symbols. The render test in
 // `components/space-list-item-emoji.test.ts` exercises real Ink and flags any
@@ -41,7 +41,7 @@ import {styledCharsFromTokens, tokenize} from '@alcalzone/ansi-tokenize';
 import widestLine from 'widest-line';
 
 /**
- * Cells Ink's renderer actually advances when drawing `text` — which is NOT
+ * Cells Ink's renderer actually advances when drawing `text`, which is NOT
  * always its layout width. Computed with the same tokenizer and the same
  * `fullWidth || value.length > 1` rule as `output.js`.
  */
@@ -57,7 +57,7 @@ export function inkRenderWidth(text: string): number {
  * reserved (`widest-line`) and the cells it actually advanced. Zero for normal
  * text; one per bare-BMP default-emoji symbol (✨ ⭐ ✅ …). This pad is real
  * output, so it widens the emitted row even though Ink's layout doesn't count
- * it — the caller has to reserve it explicitly or right-aligned content spills
+ * it, and the caller has to reserve it explicitly or right-aligned content spills
  * past the row edge (STA-1565).
  */
 export function inkRenderPad(text: string): number {
@@ -74,7 +74,7 @@ export function railEmojiIsInkPadded(emoji: string): boolean {
 	return inkRenderPad(emoji) > 0;
 }
 
-/** U+FE0F — asks for emoji presentation; visually a no-op on emoji defaults. */
+/** U+FE0F, which asks for emoji presentation; a visual no-op on emoji defaults. */
 const VARIATION_SELECTOR_16 = '️';
 
 /**
@@ -84,19 +84,19 @@ const VARIATION_SELECTOR_16 = '️';
  * terminal is *also* going to paint the glyph over, so the emitted row carries
  * one character more than its layout box is wide. Inside a bordered frame that
  * surplus column pushes the closing border past the pane edge, and the terminal
- * wraps it onto a line of its own — the phantom blank row under a ✨ profile in
+ * wraps it onto a line of its own: the phantom blank row under a ✨ profile in
  * the new-session picker (STA-1861).
  *
  * Appending U+FE0F takes the grapheme to `value.length === 2`, so the writer
  * consumes the cell instead of skipping it. VS16 is what the glyph already
  * renders as (these are emoji-presentation-by-default symbols), so nothing about
- * the drawn character changes — only how many cells Ink admits to using.
+ * the drawn character changes, only how many cells Ink admits to using.
  *
  * The guard re-measures rather than trusting the rule, so a sequence a variation
  * selector can't rescue falls through untouched instead of gaining a stray code
- * point. Deliberately scoped to `railEmojiIsInkPadded`: text-presentation
+ * point. Scoped to `railEmojiIsInkPadded`: text-presentation
  * defaults (❤ U+2764, ✂ U+2702) are *not* padded, and real terminals paint them
- * one cell wide exactly as Ink lays them out — widening those would change the
+ * one cell wide exactly as Ink lays them out; widening those would change the
  * glyph the user configured to fix a bug they don't have.
  */
 export function normalizeRailEmoji(emoji: string): string {
@@ -117,10 +117,10 @@ export function normalizeRailEmoji(emoji: string): string {
  *     is one (see `railEmojiIsInkPadded`).
  *
  * `text` is the *normalized* glyph, so the slot is the single place a rail
- * emoji is made safe to draw — nothing downstream has to know about U+FE0F.
+ * emoji is made safe to draw; nothing downstream has to know about U+FE0F.
  *
  * `overflowCells` is how far the drawn row runs past the box Ink laid out for
- * it: the columns the terminal paints (`widest-line` on the configured glyph —
+ * it: the columns the terminal paints (`widest-line` on the configured glyph,
  * the measure that matched a real tmux pane during STA-1861's TUI QA) minus the
  * columns Ink's writer emits for what we hand it. Normalization drives this to
  * zero for the whole padded class, but callers that right-align content still

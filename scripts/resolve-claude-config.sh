@@ -15,7 +15,7 @@
 # --profile <name> additionally resolves the pass-through launch flags
 # (model, effort) profile-first: profiles.<name>.claude.<field> beats the
 # top-level claude.<field>. An explicit empty string at the profile level is
-# preserved, which is how a profile opts out of an inherited value — same
+# preserved, which is how a profile opts out of an inherited value, the same
 # empty-string-is-meaningful convention companion_command uses.
 #
 # init_cmd and skip_permissions stay top-level-only here even when --profile is

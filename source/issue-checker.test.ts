@@ -3,6 +3,7 @@ import {
 	isLinearIssueKey,
 	isIssueKey,
 	isIssueNumber,
+	issueKeyPrefix,
 	normalizeIssueIdentifier,
 } from './issue-utils.ts';
 
@@ -88,6 +89,43 @@ test('isIssueNumber returns false for negative number', t => {
 
 test('isIssueNumber returns false for decimal', t => {
 	t.false(isIssueNumber('12.3'));
+});
+
+// ============================================================================
+// issueKeyPrefix Tests
+// ============================================================================
+
+test('issueKeyPrefix returns the prefix of a standard key', t => {
+	t.is(issueKeyPrefix('STA-123'), 'STA');
+});
+
+test('issueKeyPrefix uppercases a lowercase key', t => {
+	t.is(issueKeyPrefix('sta-123'), 'STA');
+});
+
+test('issueKeyPrefix tolerates whitespace padding', t => {
+	t.is(issueKeyPrefix('  STA-789  '), 'STA');
+});
+
+test('issueKeyPrefix handles an alphanumeric prefix', t => {
+	t.is(issueKeyPrefix('B2B-100'), 'B2B');
+});
+
+test('issueKeyPrefix reads the prefix out of a Linear issue URL', t => {
+	t.is(
+		issueKeyPrefix('https://linear.app/acme/issue/ENG-456/some-slug'),
+		'ENG',
+	);
+});
+
+test('issueKeyPrefix returns null for a bare number', t => {
+	// A bare number borrows its prefix from config, so it states none itself.
+	t.is(issueKeyPrefix('400'), null);
+});
+
+test('issueKeyPrefix returns null for prose and for empty input', t => {
+	t.is(issueKeyPrefix('fix the login page'), null);
+	t.is(issueKeyPrefix(''), null);
 });
 
 // ============================================================================

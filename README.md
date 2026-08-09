@@ -118,9 +118,17 @@ Enter moves focus to a **profile picker** below the prompt, with the
 keyword-matched profile already selected — so `Enter`, `Enter` spawns exactly
 what the keyword would have chosen on its own. Arrow (or `j`/`k`) to any other
 profile to override it without rewording your prompt, and `Esc` to go back to
-editing. Issue keys, bare numbers, and Linear URLs skip the picker entirely and
-spawn on a single `Enter`, since their profile comes from the issue's tracker
-project rather than from your text.
+editing.
+
+An issue key or Linear URL has no keywords to match, but its prefix still says
+which profiles could own it, so the picker opens for those too — ranked by
+prefix, behind a leading **Determined by issue project** row that names no
+profile and lets the issue's own tracker project decide. That row is
+preselected, so `Enter`, `Enter` on a key behaves exactly as a single `Enter`
+used to. A profile claims a prefix by setting its own `team_prefix`, by listing
+the prefix in `tracker_projects` (Jira issue keys are their project key), or by
+declaring neither and inheriting the global `team_prefix`. Bare numbers and
+keys no profile claims still spawn on a single `Enter`.
 
 ### What gets provisioned
 

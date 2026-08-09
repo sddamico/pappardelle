@@ -21,6 +21,27 @@ export function isIssueNumber(input: string): boolean {
 	return /^\d+$/.test(input.trim());
 }
 
+const LINEAR_URL_ISSUE_KEY =
+	/^https:\/\/linear\.app\/[^/]+\/issue\/([A-Z][A-Z0-9]*)-\d+/i;
+
+/**
+ * Extract the team prefix an issue identifier belongs to (e.g. 'STA' for
+ * 'STA-123'), uppercased. Accepts a bare key or a Linear issue URL.
+ *
+ * Returns null when the input carries no prefix of its own — bare numbers
+ * borrow one from config, and prose has none — which is the signal callers
+ * use to fall back to prefix-independent behavior.
+ */
+export function issueKeyPrefix(input: string): string | null {
+	const trimmed = input.trim();
+
+	const url = trimmed.match(LINEAR_URL_ISSUE_KEY);
+	if (url) return url[1]!.toUpperCase();
+
+	if (!isLinearIssueKey(trimmed)) return null;
+	return trimmed.split('-')[0]!.toUpperCase();
+}
+
 /**
  * Normalize an issue identifier to uppercase format (e.g., STA-400)
  * Accepts:

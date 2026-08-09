@@ -20,6 +20,9 @@ import {
 	type ProfileOption,
 } from '../profile-picker.ts';
 
+/** React key for the profile-less row, which has no profile name to use. */
+const DEFERRED_ROW_KEY = '__deferred__';
+
 interface Props {
 	onSubmit: (prompt: string, profileName: string | null) => void;
 	onCancel: () => void;
@@ -61,7 +64,9 @@ export default function PromptDialog({
 		if (!config) return null;
 		return determineProfileForInput(config, prompt);
 	}, [config, prompt]);
-	const opensPicker = preview?.kind === 'resolved';
+	const opensPicker =
+		preview?.kind === 'resolved' ||
+		(preview?.kind === 'deferred' && preview.canPick);
 
 	// Derived from the current prompt rather than snapshotted on Enter, because
 	// the list is visible while you type and has to re-rank as you go. Once the
@@ -196,7 +201,9 @@ export default function PromptDialog({
 				frame={pickerFrame}
 				isFocused={isPicking}
 				deferredLabel={
-					preview?.kind === 'deferred' ? preview.displayName : undefined
+					preview?.kind === 'deferred' && !preview.canPick
+						? preview.displayName
+						: undefined
 				}
 			/>
 		</Box>
@@ -259,7 +266,7 @@ function ProfilePicker({
 						// (which owns column 0 for every row) and left of the label.
 						const slot = resolveEmojiSlot(option.emoji);
 						return (
-							<Box key={option.name}>
+							<Box key={option.name ?? DEFERRED_ROW_KEY}>
 								<Text
 									color={isSelected ? 'green' : undefined}
 									bold={isSelected}
@@ -275,11 +282,15 @@ function ProfilePicker({
 								<Text
 									color={isSelected ? 'green' : undefined}
 									bold={isSelected}
+									italic={option.name === null}
 								>
 									{option.displayName}
 								</Text>
 								{option.matchedKeywords.length > 0 && (
 									<Text dimColor> ← {option.matchedKeywords.join(', ')}</Text>
+								)}
+								{option.matchedPrefix && (
+									<Text dimColor> ← {option.matchedPrefix}</Text>
 								)}
 								{option.enforced && <Text color="magenta"> (enforced)</Text>}
 								{option.isDefault && option.matchedKeywords.length === 0 && (

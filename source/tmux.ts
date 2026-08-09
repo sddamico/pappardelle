@@ -829,41 +829,50 @@ function getTmuxWindowSize(): {width: number; height: number} | null {
 }
 
 /**
- * Get current terminal/pane width from tmux
+ * Build the `tmux display-message` argv for reading a pane format variable.
+ *
+ * `display-message` resolves an untargeted format against the *active* pane,
+ * not the calling process's pane. pappardelle lives in a sidebar the user
+ * spends most of their time focused away from, so an untargeted query reports
+ * whatever pane the cursor happens to be in — usually the much wider claude
+ * pane. `$TMUX_PANE` is the pane id tmux exports into every process it spawns,
+ * so targeting it is what pins the answer to our own pane.
  */
-export function getTmuxPaneWidth(): number {
+export function paneQueryArgs(format: string, paneId?: string): string[] {
+	const args = ['display-message', '-p'];
+	if (paneId) args.push('-t', paneId);
+	args.push(format);
+	return args;
+}
+
+function queryPaneDimension(format: string, fallback: number): number {
 	try {
 		const result = spawnSync(
 			'tmux',
-			['display-message', '-p', '#{pane_width}'],
+			paneQueryArgs(format, process.env['TMUX_PANE']),
 			{encoding: 'utf-8', timeout: 5000},
 		);
 		if (result.error || result.status !== 0) {
-			return 120; // Default fallback
+			return fallback;
 		}
-		return parseInt(result.stdout.trim(), 10) || 120;
+		return parseInt(result.stdout.trim(), 10) || fallback;
 	} catch {
-		return 120;
+		return fallback;
 	}
+}
+
+/**
+ * Get current terminal/pane width from tmux
+ */
+export function getTmuxPaneWidth(): number {
+	return queryPaneDimension('#{pane_width}', 120);
 }
 
 /**
  * Get current terminal/pane height from tmux
  */
 export function getTmuxPaneHeight(): number {
-	try {
-		const result = spawnSync(
-			'tmux',
-			['display-message', '-p', '#{pane_height}'],
-			{encoding: 'utf-8', timeout: 5000},
-		);
-		if (result.error || result.status !== 0) {
-			return 40; // Default fallback
-		}
-		return parseInt(result.stdout.trim(), 10) || 40;
-	} catch {
-		return 40;
-	}
+	return queryPaneDimension('#{pane_height}', 40);
 }
 
 /**

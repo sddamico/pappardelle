@@ -566,6 +566,34 @@ const defaultInnerTmuxRunner: OuterTmuxRunner = args => {
 export const SYNC_TERMINAL_FEATURE = '*:Sync';
 
 /**
+ * Whether this socket's `terminal-features` already carries our Sync entry.
+ *
+ * `-v` prints one array entry per line with no `name[i]` prefix, so a whole-line
+ * comparison is the array-element test; a substring search would confuse us with
+ * a different terminal pattern that happens to name the same feature. Any
+ * failure reports "absent": a duplicate entry is cosmetic, a missing one brings
+ * the flicker back.
+ */
+function hasSynchronizedOutputFeature(run: OuterTmuxRunner): boolean {
+	try {
+		const {error, status, stdout} = run([
+			'show-options',
+			'-gqv',
+			'terminal-features',
+		]);
+		if (error || status !== 0) {
+			return false;
+		}
+
+		return stdout
+			.split('\n')
+			.some(line => line.trim() === SYNC_TERMINAL_FEATURE);
+	} catch {
+		return false;
+	}
+}
+
+/**
  * Make tmux batch each repaint into a single atomic frame.
  *
  * tmux only wraps a redraw in DEC 2026 when it believes the attached client's
@@ -584,6 +612,10 @@ export const SYNC_TERMINAL_FEATURE = '*:Sync';
  * user-configured features survive, and terminals that don't implement DEC 2026
  * ignore the private mode, which is what makes the blanket `*` workable.
  *
+ * The append is also guarded by a presence check. The tmux server outlives any
+ * one Pappardelle run, so an unconditional `-ga` piles on another copy of the
+ * entry per launch — 19 were observed on a live `pappardelle_inner` socket.
+ *
  * Runners are exposed for tests only; production uses the spawnSync defaults.
  */
 export function enableSynchronizedOutput(
@@ -595,6 +627,10 @@ export function enableSynchronizedOutput(
 		['inner', innerRunner],
 	] as const) {
 		try {
+			if (hasSynchronizedOutputFeature(run)) {
+				continue;
+			}
+
 			const {error, status} = run([
 				'set-option',
 				'-ga',

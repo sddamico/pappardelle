@@ -51,20 +51,33 @@ export function resolveSubmission(
 }
 
 /**
- * Whether the close keybinding owns the key right now, or the text field does.
+ * Whether a keybinding that acts on the highlighted row owns its key right
+ * now, or the text field does.
  *
  * Claimed only over a highlighted suggestion with the field still empty. Every
  * other letter falls through to the input and pulls the cursor back out of the
- * list, so browsing the suggestions and then typing a task that starts with the
- * close key ("xcode crash on launch") would otherwise raise a close
- * confirmation instead of a character.
+ * list, so browsing the suggestions and then typing a task that starts with one
+ * of these letters ("xcode crash on launch", "oauth token refresh loops") would
+ * otherwise fire the action instead of typing a character.
+ */
+export function isRowActionKeyClaimed(
+	selectedIndex: number,
+	typed: string,
+): boolean {
+	return selectedIndex >= 0 && typed === '';
+}
+
+/**
+ * Whether the close keybinding owns the key right now. Additionally gated on
+ * the tracker being able to close at all, which is not universal — unlike the
+ * open key, which every tracker can serve one way or another.
  */
 export function isCloseKeyClaimed(
 	canClose: boolean,
 	selectedIndex: number,
 	typed: string,
 ): boolean {
-	return canClose && selectedIndex >= 0 && typed === '';
+	return canClose && isRowActionKeyClaimed(selectedIndex, typed);
 }
 
 /**

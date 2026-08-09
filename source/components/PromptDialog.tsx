@@ -23,9 +23,11 @@ import {
 	PICKER_MAX_VISIBLE,
 	type ProfileOption,
 } from '../profile-picker.ts';
+import {openIssueForKey} from '../open-issue.ts';
 import {
 	INPUT_INDEX,
 	isCloseKeyClaimed,
+	isRowActionKeyClaimed,
 	moveSelection,
 	resolveSubmission,
 	selectionAfterRemoval,
@@ -35,6 +37,8 @@ import {
 const MAX_VISIBLE_SUGGESTIONS = 8;
 
 const CLOSE_KEY = 'x';
+
+const OPEN_KEY = 'o';
 
 interface Props {
 	onSubmit: (
@@ -88,7 +92,7 @@ export default function PromptDialog({
 		issue: TrackerIssue;
 		index: number;
 	} | null>(null);
-	const [closeError, setCloseError] = useState<string | null>(null);
+	const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
 	const {stdout} = useStdout();
 	const width = dialogWidth(availableWidth, stdout?.columns);
@@ -141,6 +145,9 @@ export default function PromptDialog({
 		readyIndex >= 0 && identifiers[readyIndex] !== undefined;
 
 	const closeKeyActive = isCloseKeyClaimed(canClose, readyIndex, prompt);
+	// Every tracker can show an issue somehow — a popup for the local-only ones,
+	// a browser for the rest — so this needs no capability gate of its own.
+	const openKeyActive = isRowActionKeyClaimed(readyIndex, prompt);
 
 	// Live preview of what the first Enter will do. Deferred inputs (issue keys)
 	// still say so and still spawn on that one Enter; everything else advertises
@@ -175,6 +182,13 @@ export default function PromptDialog({
 	// more; leaving slack keeps a long title from wrapping past the border.
 	const titleWidth = Math.max(20, width - 40);
 
+	const reservedChars = useMemo(() => {
+		const claimed: string[] = [];
+		if (closeKeyActive) claimed.push(CLOSE_KEY);
+		if (openKeyActive) claimed.push(OPEN_KEY);
+		return claimed.length > 0 ? claimed : undefined;
+	}, [closeKeyActive, openKeyActive]);
+
 	const isPromptStage = !isPicking && closeTarget === null;
 
 	useInput(
@@ -198,9 +212,21 @@ export default function PromptDialog({
 			if (closeKeyActive && input === CLOSE_KEY && !key.ctrl && !key.meta) {
 				const issue = readyIssues[readyIndex];
 				if (issue) {
-					setCloseError(null);
+					setErrorMessage(null);
 					setCloseTarget({issue, index: readyIndex});
 				}
+
+				return;
+			}
+
+			if (openKeyActive && input === OPEN_KEY && !key.ctrl && !key.meta) {
+				const issue = readyIssues[readyIndex];
+				if (!issue) return;
+
+				// Read-only, so the cursor stays where it is: the popup is a detour
+				// on the way to picking this row up, not a replacement for it.
+				const result = openIssueForKey(issue.identifier);
+				setErrorMessage(result.ok ? null : result.message);
 			}
 		},
 		{isActive: isPromptStage},
@@ -292,7 +318,7 @@ export default function PromptDialog({
 			setReadyIssues(remaining);
 			setReadyIndex(selectionAfterRemoval(index, remaining.length));
 		} else {
-			setCloseError(`Could not close ${issue.identifier}`);
+			setErrorMessage(`Could not close ${issue.identifier}`);
 		}
 
 		setCloseTarget(null);
@@ -346,13 +372,13 @@ export default function PromptDialog({
 						placeholder="STA-123, 123, or describe the task..."
 						isFocused={!isPicking}
 						isShowingCursor={readyIndex === INPUT_INDEX}
-						reservedChars={closeKeyActive ? [CLOSE_KEY] : undefined}
+						reservedChars={reservedChars}
 					/>
 				</Box>
 
-				{closeError && (
+				{errorMessage && (
 					<Box marginTop={1}>
-						<Text color="red">{closeError}</Text>
+						<Text color="red">{errorMessage}</Text>
 					</Box>
 				)}
 
@@ -414,10 +440,16 @@ export default function PromptDialog({
 				<Box paddingX={2}>
 					<Text dimColor>
 						<Text color="green">↑/↓</Text> pick up ready work
+						{openKeyActive && (
+							<>
+								{' · '}
+								<Text color="green">{OPEN_KEY}</Text> open
+							</>
+						)}
 						{closeKeyActive && (
 							<>
 								{' · '}
-								<Text color="green">x</Text> close
+								<Text color="green">{CLOSE_KEY}</Text> close
 							</>
 						)}
 					</Text>

@@ -43,6 +43,7 @@ import {
 	findSpaceByStatusKey,
 } from './claude-status.ts';
 import {normalizeIssueIdentifier} from './issue-checker.ts';
+import {openIssueForKey} from './open-issue.ts';
 import {
 	routeSession,
 	isPendingSessionResolved,
@@ -776,23 +777,7 @@ export default function App({
 			return;
 		}
 
-		try {
-			const tracker = createIssueTracker();
-			if (tracker.openIssue) {
-				const shown = tracker.openIssue(space.name);
-				setHeaderWithTimeout(
-					shown ? `Showing ${space.name}` : 'Cannot show issue outside tmux',
-					3000,
-				);
-				return;
-			}
-
-			const url = tracker.buildIssueUrl(space.name);
-			spawn('open', [url], {detached: true, stdio: 'ignore'}).unref();
-			setHeaderWithTimeout(`Opened ${space.name}`, 3000);
-		} catch {
-			setHeaderWithTimeout('Failed to look up issue', 3000);
-		}
+		setHeaderWithTimeout(openIssueForKey(space.name).message, 3000);
 	};
 
 	// Open the IDE (Cursor) at the worktree path for the selected space

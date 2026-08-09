@@ -2,6 +2,7 @@ import test from 'ava';
 import {
 	INPUT_INDEX,
 	isCloseKeyClaimed,
+	isRowActionKeyClaimed,
 	moveSelection,
 	resolveSubmission,
 	selectionAfterRemoval,
@@ -67,6 +68,24 @@ test('an empty input submits nothing', t => {
 
 test('a selection past the end of the list submits nothing', t => {
 	t.is(resolveSubmission('typed', ['pappardelle-a1'], 5), null);
+});
+
+// ============================================================================
+// isRowActionKeyClaimed
+// ============================================================================
+
+test('a row action key is claimed over a suggestion with an empty field', t => {
+	t.true(isRowActionKeyClaimed(0, ''));
+});
+
+test('a row action key yields to typing once the field has text', t => {
+	// Otherwise "oauth token refresh loops" opens the highlighted issue on its
+	// first keystroke instead of typing an o.
+	t.false(isRowActionKeyClaimed(0, 'oauth token'));
+});
+
+test('a row action key is not claimed from the input row', t => {
+	t.false(isRowActionKeyClaimed(INPUT_INDEX, ''));
 });
 
 // ============================================================================

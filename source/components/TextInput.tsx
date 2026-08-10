@@ -11,7 +11,6 @@ type Props = {
 	placeholder?: string;
 	isFocused?: boolean;
 	isShowingCursor?: boolean;
-	reservedChars?: readonly string[];
 };
 
 /**
@@ -34,7 +33,6 @@ export default function TextInput({
 	placeholder = '',
 	isFocused = true,
 	isShowingCursor = true,
-	reservedChars,
 	onChange,
 	onSubmit,
 }: Props) {
@@ -81,10 +79,6 @@ export default function TextInput({
 
 	useRawInput(
 		(input, key) => {
-			if (reservedChars?.includes(input) && !key.ctrl && !key.meta) {
-				return;
-			}
-
 			const result = handleTextInputKey(
 				originalValue,
 				cursorOffset,
@@ -103,16 +97,15 @@ export default function TextInput({
 				return;
 			}
 
-			// Cursor-only operations skip when cursor is hidden, matching the
-			// previous behavior where arrow keys were no-ops without a cursor.
-			const cursorMoved = result.cursorOffset !== cursorOffset;
-			const valueChanged = result.value !== originalValue;
-			if (cursorMoved && !valueChanged && !isShowingCursor) {
+			// The cursor is the field's claim on the keyboard. Hidden, the caret has
+			// moved to a sibling list and every edit belongs to that list instead —
+			// only Enter, handled above, still reaches the field.
+			if (!isShowingCursor) {
 				return;
 			}
 
 			setCursorOffset(result.cursorOffset);
-			if (valueChanged) {
+			if (result.value !== originalValue) {
 				onChange(result.value);
 			}
 		},

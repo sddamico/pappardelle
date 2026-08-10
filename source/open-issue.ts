@@ -18,7 +18,15 @@ export interface OpenIssueResult {
 }
 
 function launchBrowser(url: string): void {
-	spawn('open', [url], {detached: true, stdio: 'ignore'}).unref();
+	const child = spawn('open', [url], {detached: true, stdio: 'ignore'});
+
+	// A missing opener binary — anywhere `open` isn't the name, so anywhere but
+	// macOS — surfaces asynchronously, long after this has returned success. With
+	// no listener Node rethrows it and takes the whole TUI down over a failed
+	// browser launch, so swallow it: the worst case is a browser that never
+	// appears, which the user can see for themselves.
+	child.on('error', () => {});
+	child.unref();
 }
 
 /**

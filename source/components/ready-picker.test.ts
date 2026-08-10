@@ -74,40 +74,29 @@ test('a selection past the end of the list submits nothing', t => {
 // isRowActionKeyClaimed
 // ============================================================================
 
-test('a row action key is claimed over a suggestion with an empty field', t => {
-	t.true(isRowActionKeyClaimed(0, ''));
-});
-
-test('a row action key yields to typing once the field has text', t => {
-	// Otherwise "oauth token refresh loops" opens the highlighted issue on its
-	// first keystroke instead of typing an o.
-	t.false(isRowActionKeyClaimed(0, 'oauth token'));
+test('a row action key is claimed over a highlighted suggestion', t => {
+	t.true(isRowActionKeyClaimed(0));
 });
 
 test('a row action key is not claimed from the input row', t => {
-	t.false(isRowActionKeyClaimed(INPUT_INDEX, ''));
+	// Where the field is live, so "oauth token refresh loops" types its o.
+	t.false(isRowActionKeyClaimed(INPUT_INDEX));
 });
 
 // ============================================================================
 // isCloseKeyClaimed
 // ============================================================================
 
-test('the close key is claimed over a suggestion with an empty field', t => {
-	t.true(isCloseKeyClaimed(true, 0, ''));
-});
-
-test('the close key yields to typing once the field has text', t => {
-	// Otherwise "xcode crash on launch" opens a close confirmation on its first
-	// keystroke instead of typing an x.
-	t.false(isCloseKeyClaimed(true, 0, 'xcode crash'));
+test('the close key is claimed over a highlighted suggestion', t => {
+	t.true(isCloseKeyClaimed(true, 0));
 });
 
 test('the close key is not claimed from the input row', t => {
-	t.false(isCloseKeyClaimed(true, INPUT_INDEX, ''));
+	t.false(isCloseKeyClaimed(true, INPUT_INDEX));
 });
 
 test('a tracker that cannot close issues never claims the key', t => {
-	t.false(isCloseKeyClaimed(false, 0, ''));
+	t.false(isCloseKeyClaimed(false, 0));
 });
 
 // ============================================================================

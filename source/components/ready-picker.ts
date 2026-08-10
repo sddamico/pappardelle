@@ -51,20 +51,15 @@ export function resolveSubmission(
 }
 
 /**
- * Whether a keybinding that acts on the highlighted row owns its key right
- * now, or the text field does.
+ * Whether a keybinding that acts on the highlighted row owns its key right now.
  *
- * Claimed only over a highlighted suggestion with the field still empty. Every
- * other letter falls through to the input and pulls the cursor back out of the
- * list, so browsing the suggestions and then typing a task that starts with one
- * of these letters ("xcode crash on launch", "oauth token refresh loops") would
- * otherwise fire the action instead of typing a character.
+ * Highlighting a suggestion moves the caret out of the text field, and the
+ * field goes inert while it is gone, so letters over the list are unambiguously
+ * commands: typing a task that starts with one of them ("xcode crash on launch",
+ * "oauth token refresh loops") means first returning to the field with ↑.
  */
-export function isRowActionKeyClaimed(
-	selectedIndex: number,
-	typed: string,
-): boolean {
-	return selectedIndex >= 0 && typed === '';
+export function isRowActionKeyClaimed(selectedIndex: number): boolean {
+	return selectedIndex >= 0;
 }
 
 /**
@@ -75,9 +70,8 @@ export function isRowActionKeyClaimed(
 export function isCloseKeyClaimed(
 	canClose: boolean,
 	selectedIndex: number,
-	typed: string,
 ): boolean {
-	return canClose && isRowActionKeyClaimed(selectedIndex, typed);
+	return canClose && isRowActionKeyClaimed(selectedIndex);
 }
 
 /**

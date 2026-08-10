@@ -147,10 +147,10 @@ export default function PromptDialog({
 	const fromReadyList =
 		readyIndex >= 0 && identifiers[readyIndex] !== undefined;
 
-	const closeKeyActive = isCloseKeyClaimed(canClose, readyIndex, prompt);
+	const closeKeyActive = isCloseKeyClaimed(canClose, readyIndex);
 	// Every tracker can show an issue somehow — a popup for the local-only ones,
 	// a browser for the rest — so this needs no capability gate of its own.
-	const openKeyActive = isRowActionKeyClaimed(readyIndex, prompt);
+	const openKeyActive = isRowActionKeyClaimed(readyIndex);
 
 	// Live preview of what the first Enter will do. Deferred inputs (issue keys)
 	// still say so and still spawn on that one Enter; everything else advertises
@@ -186,13 +186,6 @@ export default function PromptDialog({
 	// The frame and its padding eat columns, and the caret and issue key eat
 	// more; leaving slack keeps a long title from wrapping past the border.
 	const titleWidth = Math.max(20, width - 40);
-
-	const reservedChars = useMemo(() => {
-		const claimed: string[] = [];
-		if (closeKeyActive) claimed.push(CLOSE_KEY);
-		if (openKeyActive) claimed.push(OPEN_KEY);
-		return claimed.length > 0 ? claimed : undefined;
-	}, [closeKeyActive, openKeyActive]);
 
 	const isPromptStage = !isPicking && closeTarget === null;
 
@@ -274,11 +267,8 @@ export default function PromptDialog({
 		{isActive: isPicking && closeTarget === null},
 	);
 
-	// Editing the field means the user is composing, so drop back to
-	// the input so Enter can't submit a suggestion they've scrolled away from.
 	const handleChange = (value: string) => {
 		setPrompt(value);
-		setReadyIndex(INPUT_INDEX);
 	};
 
 	const handlePromptSubmit = (value: string) => {
@@ -377,7 +367,6 @@ export default function PromptDialog({
 						placeholder="STA-123, 123, or describe the task..."
 						isFocused={!isPicking}
 						isShowingCursor={readyIndex === INPUT_INDEX}
-						reservedChars={reservedChars}
 					/>
 				</Box>
 

@@ -5,6 +5,7 @@ import {
 	isLinearIssueKey,
 	isIssueKey,
 	isIssueNumber,
+	issueKeyTeamPrefix,
 	normalizeIssueIdentifier,
 } from './issue-utils.ts';
 
@@ -90,6 +91,52 @@ test('isIssueNumber returns false for negative number', t => {
 
 test('isIssueNumber returns false for decimal', t => {
 	t.false(isIssueNumber('12.3'));
+});
+
+// ============================================================================
+// issueKeyTeamPrefix Tests
+// ============================================================================
+
+test('issueKeyTeamPrefix returns the prefix of a standard key', t => {
+	t.is(issueKeyTeamPrefix('STA-123'), 'STA');
+});
+
+test('issueKeyTeamPrefix uppercases a lowercase key', t => {
+	t.is(issueKeyTeamPrefix('sta-123'), 'STA');
+});
+
+test('issueKeyTeamPrefix tolerates whitespace padding', t => {
+	t.is(issueKeyTeamPrefix('  STA-789  '), 'STA');
+});
+
+test('issueKeyTeamPrefix handles an alphanumeric prefix', t => {
+	t.is(issueKeyTeamPrefix('B2B-100'), 'B2B');
+});
+
+test('issueKeyTeamPrefix reads the prefix out of a Linear issue URL', t => {
+	t.is(
+		issueKeyTeamPrefix('https://linear.app/acme/issue/ENG-456/some-slug'),
+		'ENG',
+	);
+});
+
+test('issueKeyTeamPrefix reads a Linear URL carrying an extra path segment', t => {
+	// Linear emits both /<workspace>/issue/KEY and /<workspace>/team/issue/KEY;
+	// idow and determineProfileForInput both accept the longer form.
+	t.is(
+		issueKeyTeamPrefix('https://linear.app/acme/team/issue/ENG-456/slug'),
+		'ENG',
+	);
+});
+
+test('issueKeyTeamPrefix returns null for a bare number', t => {
+	// A bare number borrows its prefix from config, so it states none itself.
+	t.is(issueKeyTeamPrefix('400'), null);
+});
+
+test('issueKeyTeamPrefix returns null for prose and for empty input', t => {
+	t.is(issueKeyTeamPrefix('fix the login page'), null);
+	t.is(issueKeyTeamPrefix(''), null);
 });
 
 // ============================================================================

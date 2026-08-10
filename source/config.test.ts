@@ -35,6 +35,7 @@ import {
 	determineProfileForInput,
 	getBeadsPrefixes,
 	readBeadsIssuePrefix,
+	matchProfilesByKeyPrefix,
 	DEFERRED_PROFILE_DISPLAY_NAME,
 } from './config.ts';
 
@@ -4228,6 +4229,162 @@ test("getProfileDefaultProject preserves exact casing — UUID resolution is the
 });
 
 // ============================================================================
+// matchProfilesByKeyPrefix
+//
+// Which profiles could plausibly own an issue whose key carries a given
+// prefix. Explicit claims (own team_prefix, or a tracker_projects entry
+// spelling a Jira project key) outrank the profiles that merely inherit the
+// global team_prefix.
+// ============================================================================
+
+test('matchProfilesByKeyPrefix matches a profile own team_prefix', t => {
+	const config = createConfig(
+		{
+			personal: {
+				...createProfile(['personal'], 'Personal'),
+				team_prefix: 'PER',
+			},
+			trotbooks: {
+				...createProfile(['trotbooks'], 'TrotBooks'),
+				team_prefix: 'TRT',
+			},
+		},
+		'personal',
+		'STA',
+	);
+	t.deepEqual(
+		matchProfilesByKeyPrefix(config, 'TRT').map(m => m.name),
+		['trotbooks'],
+	);
+});
+
+test('matchProfilesByKeyPrefix matches case-insensitively', t => {
+	const config = createConfig(
+		{
+			personal: {
+				...createProfile(['personal'], 'Personal'),
+				team_prefix: 'per',
+			},
+		},
+		'personal',
+		'STA',
+	);
+	t.deepEqual(
+		matchProfilesByKeyPrefix(config, 'per').map(m => m.name),
+		['personal'],
+	);
+});
+
+test('matchProfilesByKeyPrefix matches a tracker_projects entry as a project key', t => {
+	const config = createConfig(
+		{
+			personal: {
+				...createProfile(['personal'], 'Personal'),
+				tracker_projects: ['KAN'],
+			},
+			trotbooks: {
+				...createProfile(['trotbooks'], 'TrotBooks'),
+				team_prefix: 'TRT',
+			},
+		},
+		'personal',
+		'STA',
+	);
+	const matches = matchProfilesByKeyPrefix(config, 'KAN');
+	t.deepEqual(
+		matches.map(m => m.name),
+		['personal'],
+	);
+	t.true(matches[0]!.explicit);
+});
+
+test('matchProfilesByKeyPrefix matches an issue_watchlist key_prefixes entry', t => {
+	// The watchlist already spawns these issues under this profile
+	// (idow --profile), so a hand-typed key of the same prefix has to be able to
+	// reach it too.
+	const config = createConfig(
+		{
+			personal: {
+				...createProfile(['personal'], 'Personal'),
+				issue_watchlist: {
+					assignee: 'me',
+					statuses: ['To Do'],
+					key_prefixes: ['SDJ'],
+				},
+			},
+			trotbooks: createProfile(['trotbooks'], 'TrotBooks'),
+		},
+		'trotbooks',
+		'STA',
+	);
+	const matches = matchProfilesByKeyPrefix(config, 'SDJ');
+	t.deepEqual(
+		matches.map(m => m.name),
+		['personal'],
+	);
+	t.true(matches[0]!.explicit);
+});
+
+test('matchProfilesByKeyPrefix treats prefix-less profiles as inheriting the global prefix', t => {
+	const config = createConfig(
+		{
+			personal: createProfile(['personal'], 'Personal'),
+			trotbooks: {
+				...createProfile(['trotbooks'], 'TrotBooks'),
+				team_prefix: 'TRT',
+			},
+		},
+		'personal',
+		'STA',
+	);
+	const matches = matchProfilesByKeyPrefix(config, 'STA');
+	t.deepEqual(
+		matches.map(m => m.name),
+		['personal'],
+	);
+	t.false(matches[0]!.explicit);
+});
+
+test('matchProfilesByKeyPrefix ranks explicit claims ahead of inherited ones', t => {
+	const config = createConfig(
+		{
+			personal: createProfile(['personal'], 'Personal'),
+			trotbooks: {
+				...createProfile(['trotbooks'], 'TrotBooks'),
+				team_prefix: 'STA',
+			},
+		},
+		'personal',
+		'STA',
+	);
+	t.deepEqual(
+		matchProfilesByKeyPrefix(config, 'STA').map(m => m.name),
+		['trotbooks', 'personal'],
+	);
+});
+
+test('matchProfilesByKeyPrefix returns nothing for an unclaimed prefix', t => {
+	const config = createConfig(
+		{personal: createProfile(['personal'], 'Personal')},
+		'personal',
+		'STA',
+	);
+	t.deepEqual(matchProfilesByKeyPrefix(config, 'ZZZ'), []);
+	t.deepEqual(matchProfilesByKeyPrefix(config, '  '), []);
+});
+
+test('matchProfilesByKeyPrefix falls back to the STA default when no team_prefix is set', t => {
+	const config = createConfig(
+		{personal: createProfile(['personal'], 'Personal')},
+		'personal',
+	);
+	t.deepEqual(
+		matchProfilesByKeyPrefix(config, 'STA').map(m => m.name),
+		['personal'],
+	);
+});
+
+// ============================================================================
 // determineProfileForInput (STA-856, STA-865)
 //
 // Single source of truth for "which profile will this input resolve to?",
@@ -4386,6 +4543,60 @@ test('readBeadsIssuePrefix is undefined when the file or key is absent', t => {
 	fs.mkdirSync(path.join(dir, '.beads'));
 	fs.writeFileSync(path.join(dir, '.beads', 'config.yaml'), 'other: value\n');
 	t.is(readBeadsIssuePrefix(dir), undefined);
+});
+
+test('determineProfileForInput defers a lowercase issue key like an uppercase one', t => {
+	// A lowercase key reaches the tracker as the same issue, so it has to reach
+	// the same profile decision — otherwise the preview and the option list the
+	// picker renders disagree about what Enter is going to do.
+	const config = createConfig(
+		{personal: createProfile(['personal'], 'Personal')},
+		'personal',
+	);
+	t.is(determineProfileForInput(config, 'sta-123')!.kind, 'deferred');
+	t.is(
+		determineProfileForInput(
+			config,
+			'https://linear.app/acme/issue/sta-123/slug',
+		)!.kind,
+		'deferred',
+	);
+});
+
+test('determineProfileForInput marks a claimed key prefix as pickable', t => {
+	// Neither profile names a prefix, so both inherit the global one and both
+	// could own STA-123 — the caller should offer the choice rather than an
+	// inert label.
+	const config = createConfig(
+		{
+			personal: createProfile(['personal'], 'Personal'),
+			trotbooks: createProfile(['trotbooks'], 'TrotBooks'),
+		},
+		'personal',
+	);
+	const info = determineProfileForInput(config, 'STA-123');
+	t.is(info!.kind, 'deferred');
+	if (info!.kind === 'deferred') t.true(info.canPick);
+});
+
+test('determineProfileForInput leaves an unclaimed key prefix unpickable', t => {
+	const config = createConfig(
+		{personal: createProfile(['personal'], 'Personal')},
+		'personal',
+	);
+	const info = determineProfileForInput(config, 'ZZZ-123');
+	t.is(info!.kind, 'deferred');
+	if (info!.kind === 'deferred') t.false(info.canPick);
+});
+
+test('determineProfileForInput leaves a bare number unpickable', t => {
+	const config = createConfig(
+		{personal: createProfile(['personal'], 'Personal')},
+		'personal',
+	);
+	const info = determineProfileForInput(config, '42');
+	t.is(info!.kind, 'deferred');
+	if (info!.kind === 'deferred') t.false(info.canPick);
 });
 
 test('determineProfileForInput defers profile selection for bare issue numbers', t => {

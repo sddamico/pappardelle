@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import YAML from 'js-yaml';
-import {isBeadsIssueKey} from './issue-utils.ts';
+import {isBeadsIssueKey, issueKeyTeamPrefix} from './issue-utils.ts';
 
 // ============================================================================
 // Types
@@ -1525,11 +1525,90 @@ export function getBeadsPrefixes(
 	return [...prefixes];
 }
 
+export type ProfilePrefixMatch = {
+	name: string;
+	profile: Profile;
+	/**
+	 * The profile named this prefix itself (own `team_prefix`, or a
+	 * `tracker_projects` entry spelling the project key) rather than inheriting
+	 * it from the global `team_prefix`. Explicit claims outrank inherited ones
+	 * and are the only ones worth surfacing in the picker.
+	 */
+	explicit: boolean;
+};
+
+/**
+ * Profiles that can plausibly own an issue whose key carries `prefix`.
+ *
+ * Ways to claim one, in descending strength:
+ *   - the profile's own `team_prefix` is that prefix
+ *   - a `tracker_projects` entry spells it — Jira issue keys are their project
+ *     key, so `tracker_projects: [KAN]` and `KAN-12` are the same statement
+ *   - its `issue_watchlist.key_prefixes` lists it, which is the strongest
+ *     statement of all: the watchlist already spawns those issues under this
+ *     profile, so a hand-typed key of the same prefix must be able to reach it
+ *   - the profile declares none of those, so it inherits the global
+ *     `team_prefix`;
+ *     in a single-team config that is every profile, which is the point — the
+ *     user gets to choose among all of them rather than none of them
+ *
+ * Returns [] when the prefix is unclaimed, which keeps issue keys from an
+ * unknown team on the deferred path.
+ */
+export function matchProfilesByKeyPrefix(
+	config: PappardelleConfig,
+	prefix: string,
+): ProfilePrefixMatch[] {
+	const wanted = prefix.trim().toUpperCase();
+	if (!wanted) return [];
+
+	const globalPrefix = getTeamPrefix(config);
+	const explicit: ProfilePrefixMatch[] = [];
+	const inherited: ProfilePrefixMatch[] = [];
+
+	for (const [name, profile] of Object.entries(config.profiles)) {
+		const ownPrefix = profile.team_prefix?.toUpperCase();
+		const projectKeyMatch = profile.tracker_projects?.some(
+			tp => tp.trim().toUpperCase() === wanted,
+		);
+		const watchedPrefixMatch = profile.issue_watchlist?.key_prefixes?.some(
+			kp => kp.trim().toUpperCase() === wanted,
+		);
+
+		if (ownPrefix === wanted || projectKeyMatch || watchedPrefixMatch) {
+			explicit.push({name, profile, explicit: true});
+			continue;
+		}
+
+		if (ownPrefix === undefined && globalPrefix === wanted) {
+			inherited.push({name, profile, explicit: false});
+		}
+	}
+
+	return [...explicit, ...inherited];
+}
+
+/**
+ * Profiles claiming the prefix of whatever issue identifier `input` names.
+ * Empty for prose and for bare numbers, which have no prefix of their own.
+ */
+export function matchProfilesByInputKeyPrefix(
+	config: PappardelleConfig,
+	input: string,
+): ProfilePrefixMatch[] {
+	const prefix = issueKeyTeamPrefix(input);
+	if (!prefix) return [];
+	return matchProfilesByKeyPrefix(config, prefix);
+}
+
 // Issue-key patterns used to short-circuit keyword matching and return the default profile.
-const DETERMINE_PROFILE_ISSUE_KEY = /^[A-Z][A-Z0-9]*-\d+$/;
+// Case-insensitive like isLinearIssueKey and normalizeIssueIdentifier: a
+// lowercase key reaches the tracker as the same issue, so it has to reach the
+// same profile decision too.
+const DETERMINE_PROFILE_ISSUE_KEY = /^[A-Z][A-Z0-9]*-\d+$/i;
 const DETERMINE_PROFILE_ISSUE_NUMBER = /^\d+$/;
 const DETERMINE_PROFILE_LINEAR_URL =
-	/^https:\/\/linear\.app\/.+\/issue\/[A-Z][A-Z0-9]*-\d+/;
+	/^https:\/\/linear\.app\/.+\/issue\/[A-Z][A-Z0-9]*-\d+/i;
 
 /**
  * Label shown in the TUI when profile selection is deferred to idow's
@@ -1541,6 +1620,14 @@ export type ProfileSelection =
 	| {
 			kind: 'deferred';
 			displayName: string;
+			/**
+			 * At least one profile claims this key's prefix, so the deferred
+			 * lookup is the *preselected* answer rather than the only one — the
+			 * TUI should offer the picker instead of an inert label. False for
+			 * bare numbers and for prefixes no profile claims, where deferring is
+			 * genuinely all we can do.
+			 */
+			canPick: boolean;
 	  }
 	| {
 			kind: 'resolved';
@@ -1569,8 +1656,10 @@ export type ProfileSelection =
  * Returns:
  *  - null for empty/whitespace input
  *  - `{kind: 'deferred'}` for issue keys, bare numbers, or Linear URLs —
- *    the caller should NOT pass --profile to idow; idow will pick the
- *    profile based on the fetched issue's tracker project
+ *    idow picks the profile from the fetched issue's tracker project, so
+ *    that is what the caller gets by default. `canPick` says whether any
+ *    profile claims the key's prefix, in which case the caller should still
+ *    offer the picker and honor an explicit override
  *  - `{kind: 'resolved'}` otherwise (keyword match or default fallback)
  */
 export function determineProfileForInput(
@@ -1590,7 +1679,11 @@ export function determineProfileForInput(
 				getBeadsPrefixes(config, readBeadsIssuePrefix()),
 			))
 	) {
-		return {kind: 'deferred', displayName: DEFERRED_PROFILE_DISPLAY_NAME};
+		return {
+			kind: 'deferred',
+			displayName: DEFERRED_PROFILE_DISPLAY_NAME,
+			canPick: matchProfilesByInputKeyPrefix(config, trimmed).length > 0,
+		};
 	}
 
 	const matches = matchProfiles(config, trimmed);

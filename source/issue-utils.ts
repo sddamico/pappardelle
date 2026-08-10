@@ -51,6 +51,34 @@ export function isIssueNumber(input: string): boolean {
 	return /^\d+$/.test(input.trim());
 }
 
+// The workspace segment is `.+` rather than `[^/]+` to stay in lockstep with
+// config.ts's DETERMINE_PROFILE_LINEAR_URL and idow's own URL parse, both of
+// which accept the extra `/team/` segment Linear sometimes emits.
+const LINEAR_URL_ISSUE_KEY =
+	/^https:\/\/linear\.app\/.+\/issue\/([A-Z][A-Z0-9]*)-\d+/i;
+
+/**
+ * Extract the team prefix an issue identifier belongs to (e.g. 'STA' for
+ * 'STA-123'), uppercased. Accepts a bare key or a Linear issue URL.
+ *
+ * Distinct from `issueKeyPrefix`, which answers a different question for a
+ * different grammar: the issue *source* ahead of the last hyphen, verbatim,
+ * for beads IDs that carry hyphens of their own.
+ *
+ * Returns null when the input carries no prefix of its own — bare numbers
+ * borrow one from config, and prose has none — which is the signal callers
+ * use to fall back to prefix-independent behavior.
+ */
+export function issueKeyTeamPrefix(input: string): string | null {
+	const trimmed = input.trim();
+
+	const url = trimmed.match(LINEAR_URL_ISSUE_KEY);
+	if (url) return url[1]!.toUpperCase();
+
+	if (!isLinearIssueKey(trimmed)) return null;
+	return trimmed.split('-')[0]!.toUpperCase();
+}
+
 /**
  * Normalize an issue identifier to the form its tracker uses.
  * Accepts:

@@ -21,8 +21,11 @@ export function isIssueNumber(input: string): boolean {
 	return /^\d+$/.test(input.trim());
 }
 
+// The workspace segment is `.+` rather than `[^/]+` to stay in lockstep with
+// config.ts's DETERMINE_PROFILE_LINEAR_URL and idow's own URL parse, both of
+// which accept the extra `/team/` segment Linear sometimes emits.
 const LINEAR_URL_ISSUE_KEY =
-	/^https:\/\/linear\.app\/[^/]+\/issue\/([A-Z][A-Z0-9]*)-\d+/i;
+	/^https:\/\/linear\.app\/.+\/issue\/([A-Z][A-Z0-9]*)-\d+/i;
 
 /**
  * Extract the team prefix an issue identifier belongs to (e.g. 'STA' for

@@ -4268,6 +4268,33 @@ test('matchProfilesByKeyPrefix matches a tracker_projects entry as a project key
 	t.true(matches[0]!.explicit);
 });
 
+test('matchProfilesByKeyPrefix matches an issue_watchlist key_prefixes entry', t => {
+	// The watchlist already spawns these issues under this profile
+	// (idow --profile), so a hand-typed key of the same prefix has to be able to
+	// reach it too.
+	const config = createConfig(
+		{
+			personal: {
+				...createProfile(['personal'], 'Personal'),
+				issue_watchlist: {
+					assignee: 'me',
+					statuses: ['To Do'],
+					key_prefixes: ['SDJ'],
+				},
+			},
+			trotbooks: createProfile(['trotbooks'], 'TrotBooks'),
+		},
+		'trotbooks',
+		'STA',
+	);
+	const matches = matchProfilesByKeyPrefix(config, 'SDJ');
+	t.deepEqual(
+		matches.map(m => m.name),
+		['personal'],
+	);
+	t.true(matches[0]!.explicit);
+});
+
 test('matchProfilesByKeyPrefix treats prefix-less profiles as inheriting the global prefix', t => {
 	const config = createConfig(
 		{
@@ -4364,6 +4391,24 @@ test('determineProfileForInput defers profile selection for issue keys', t => {
 	if (info!.kind === 'deferred') {
 		t.is(info.displayName, DEFERRED_PROFILE_DISPLAY_NAME);
 	}
+});
+
+test('determineProfileForInput defers a lowercase issue key like an uppercase one', t => {
+	// A lowercase key reaches the tracker as the same issue, so it has to reach
+	// the same profile decision — otherwise the preview and the option list the
+	// picker renders disagree about what Enter is going to do.
+	const config = createConfig(
+		{personal: createProfile(['personal'], 'Personal')},
+		'personal',
+	);
+	t.is(determineProfileForInput(config, 'sta-123')!.kind, 'deferred');
+	t.is(
+		determineProfileForInput(
+			config,
+			'https://linear.app/acme/issue/sta-123/slug',
+		)!.kind,
+		'deferred',
+	);
 });
 
 test('determineProfileForInput marks a claimed key prefix as pickable', t => {

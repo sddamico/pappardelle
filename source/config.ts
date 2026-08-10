@@ -1450,11 +1450,15 @@ export type ProfilePrefixMatch = {
 /**
  * Profiles that can plausibly own an issue whose key carries `prefix`.
  *
- * Three ways to claim one, in descending strength:
+ * Ways to claim one, in descending strength:
  *   - the profile's own `team_prefix` is that prefix
  *   - a `tracker_projects` entry spells it — Jira issue keys are their project
  *     key, so `tracker_projects: [KAN]` and `KAN-12` are the same statement
- *   - the profile declares neither, so it inherits the global `team_prefix`;
+ *   - its `issue_watchlist.key_prefixes` lists it, which is the strongest
+ *     statement of all: the watchlist already spawns those issues under this
+ *     profile, so a hand-typed key of the same prefix must be able to reach it
+ *   - the profile declares none of those, so it inherits the global
+ *     `team_prefix`;
  *     in a single-team config that is every profile, which is the point — the
  *     user gets to choose among all of them rather than none of them
  *
@@ -1477,8 +1481,11 @@ export function matchProfilesByKeyPrefix(
 		const projectKeyMatch = profile.tracker_projects?.some(
 			tp => tp.trim().toUpperCase() === wanted,
 		);
+		const watchedPrefixMatch = profile.issue_watchlist?.key_prefixes?.some(
+			kp => kp.trim().toUpperCase() === wanted,
+		);
 
-		if (ownPrefix === wanted || projectKeyMatch) {
+		if (ownPrefix === wanted || projectKeyMatch || watchedPrefixMatch) {
 			explicit.push({name, profile, explicit: true});
 			continue;
 		}
@@ -1505,10 +1512,13 @@ export function matchProfilesByInputKeyPrefix(
 }
 
 // Issue-key patterns used to short-circuit keyword matching and return the default profile.
-const DETERMINE_PROFILE_ISSUE_KEY = /^[A-Z][A-Z0-9]*-\d+$/;
+// Case-insensitive like isLinearIssueKey and normalizeIssueIdentifier: a
+// lowercase key reaches the tracker as the same issue, so it has to reach the
+// same profile decision too.
+const DETERMINE_PROFILE_ISSUE_KEY = /^[A-Z][A-Z0-9]*-\d+$/i;
 const DETERMINE_PROFILE_ISSUE_NUMBER = /^\d+$/;
 const DETERMINE_PROFILE_LINEAR_URL =
-	/^https:\/\/linear\.app\/.+\/issue\/[A-Z][A-Z0-9]*-\d+/;
+	/^https:\/\/linear\.app\/.+\/issue\/[A-Z][A-Z0-9]*-\d+/i;
 
 /**
  * Label shown in the TUI when profile selection is deferred to idow's

@@ -118,6 +118,15 @@ test('issueKeyPrefix reads the prefix out of a Linear issue URL', t => {
 	);
 });
 
+test('issueKeyPrefix reads a Linear URL carrying an extra path segment', t => {
+	// Linear emits both /<workspace>/issue/KEY and /<workspace>/team/issue/KEY;
+	// idow and determineProfileForInput both accept the longer form.
+	t.is(
+		issueKeyPrefix('https://linear.app/acme/team/issue/ENG-456/slug'),
+		'ENG',
+	);
+});
+
 test('issueKeyPrefix returns null for a bare number', t => {
 	// A bare number borrows its prefix from config, so it states none itself.
 	t.is(issueKeyPrefix('400'), null);

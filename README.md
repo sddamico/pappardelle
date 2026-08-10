@@ -126,8 +126,9 @@ prefix, behind a leading **Determined by issue project** row that names no
 profile and lets the issue's own tracker project decide. That row is
 preselected, so `Enter`, `Enter` on a key behaves exactly as a single `Enter`
 used to. A profile claims a prefix by setting its own `team_prefix`, by listing
-the prefix in `tracker_projects` (Jira issue keys are their project key), or by
-declaring neither and inheriting the global `team_prefix`. Bare numbers and
+the prefix in `tracker_projects` (Jira issue keys are their project key), by
+listing it in its `issue_watchlist.key_prefixes`, or by declaring none of those
+and inheriting the global `team_prefix`. Bare numbers and
 keys no profile claims still spawn on a single `Enter`.
 
 ### What gets provisioned

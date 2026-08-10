@@ -224,9 +224,10 @@ function ProfilePicker({
 	frame: {borderStyle: 'double' | 'round'; isDim: boolean};
 	isFocused: boolean;
 	/**
-	 * Set for issue-key / bare-number / Linear-URL inputs, where there is no
-	 * choice to make — the profile comes from the fetched issue's tracker
-	 * project. The box stays on screen (it always does) but shows a single
+	 * Set for bare numbers and for issue keys whose prefix no profile claims,
+	 * where there is no choice to make — the profile comes from the fetched
+	 * issue's tracker project. A claimed prefix gets the real list instead.
+	 * The box stays on screen (it always does) but shows a single
 	 * inert row instead of a list, so it's visibly not somewhere Enter stops.
 	 */
 	deferredLabel?: string;

@@ -1498,10 +1498,27 @@ export function getProfileDefaultProject(profile: Profile): string | undefined {
 	return first === undefined || first === '' ? undefined : first;
 }
 
+/**
+ * Memoized per repo root. `determineProfileForInput` runs on every keystroke
+ * in the new-session prompt, so an uncached read would put a blocking
+ * `readFileSync` plus a YAML parse on the TUI's render path.
+ *
+ * A miss is stored even when it resolves to `undefined`, so repos with no
+ * beads config — the case that would otherwise re-stat the file forever — get
+ * the same single-read treatment as repos that have one.
+ */
 const beadsIssuePrefixCache = new Map<string, string | undefined>();
 
 export function readBeadsIssuePrefix(repoRoot?: string): string | undefined {
-	const root = repoRoot ?? getMainRepoRoot();
+	// getMainRepoRoot throws outside a git repo; this function's contract is to
+	// return undefined rather than propagate, so it has to resolve inside the try.
+	let root: string;
+	try {
+		root = repoRoot ?? getMainRepoRoot();
+	} catch {
+		return undefined;
+	}
+
 	if (beadsIssuePrefixCache.has(root)) {
 		return beadsIssuePrefixCache.get(root);
 	}

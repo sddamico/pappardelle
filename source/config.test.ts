@@ -4547,6 +4547,50 @@ test('readBeadsIssuePrefix is undefined when the file or key is absent', t => {
 	t.is(readBeadsIssuePrefix(dir), undefined);
 });
 
+// determineProfileForInput runs on every keystroke in the new-session prompt,
+// so this has to stay a cache hit — an uncached read puts a blocking
+// readFileSync and a YAML parse on the TUI's render path per character.
+test('readBeadsIssuePrefix parses .beads/config.yaml at most once per root', t => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'beads-prefix-'));
+	fs.mkdirSync(path.join(dir, '.beads'));
+	const configPath = path.join(dir, '.beads', 'config.yaml');
+	fs.writeFileSync(configPath, 'issue-prefix: first\n');
+
+	clearBeadsIssuePrefixCache();
+	t.is(readBeadsIssuePrefix(dir), 'first');
+
+	// Rewriting on disk must not be observable: a second call that re-reads
+	// would return 'second' and fail here.
+	fs.writeFileSync(configPath, 'issue-prefix: second\n');
+	t.is(readBeadsIssuePrefix(dir), 'first');
+
+	// The cache is keyed per root, so a different repo still resolves on its own.
+	const other = fs.mkdtempSync(path.join(os.tmpdir(), 'beads-prefix-'));
+	fs.mkdirSync(path.join(other, '.beads'));
+	fs.writeFileSync(
+		path.join(other, '.beads', 'config.yaml'),
+		'issue-prefix: elsewhere\n',
+	);
+	t.is(readBeadsIssuePrefix(other), 'elsewhere');
+	t.is(readBeadsIssuePrefix(dir), 'first');
+});
+
+// A repo with no beads config is the case that would otherwise re-stat a
+// missing file on every keystroke, so the negative result has to cache too.
+test('readBeadsIssuePrefix caches a missing .beads/config.yaml', t => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'beads-prefix-'));
+
+	clearBeadsIssuePrefixCache();
+	t.is(readBeadsIssuePrefix(dir), undefined);
+
+	fs.mkdirSync(path.join(dir, '.beads'));
+	fs.writeFileSync(
+		path.join(dir, '.beads', 'config.yaml'),
+		'issue-prefix: x\n',
+	);
+	t.is(readBeadsIssuePrefix(dir), undefined);
+});
+
 test('determineProfileForInput defers a lowercase issue key like an uppercase one', t => {
 	// A lowercase key reaches the tracker as the same issue, so it has to reach
 	// the same profile decision — otherwise the preview and the option list the

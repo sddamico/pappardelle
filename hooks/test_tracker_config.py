@@ -249,5 +249,63 @@ def test_multi_prefix_config_still_rejects_ordinary_directory_names(tmp_path):
     assert tracker_config.find_issue_key(str(repo)) is None
 
 
+# ---------------------------------------------------------------------------
+# find_repo_config — worktree fallback
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def worktree(tmp_path, monkeypatch):
+    """A linked worktree that carries no config, plus its main checkout.
+
+    Mirrors the machine setups that put .pappardelle.yml and .beads/ in
+    .git/info/exclude: the worktree is a real directory outside the main
+    checkout, so walking up from it can never reach the config.
+    """
+    checkout = tmp_path / "checkout"
+    linked = tmp_path / "worktrees" / "pap-a1b2"
+    linked.mkdir(parents=True)
+    monkeypatch.setattr(tracker_config, "get_main_repo_root", lambda start=None: str(checkout))
+    return checkout, linked
+
+
+def test_provider_resolves_from_the_main_checkout_in_a_worktree(worktree):
+    checkout, linked = worktree
+    write_repo(checkout, "version: 1\nissue_tracker:\n  provider: beads\n")
+    assert tracker_config.get_tracker_provider(str(linked)) == "beads"
+
+
+def test_beads_prefix_resolves_from_the_main_checkout_in_a_worktree(worktree):
+    checkout, linked = worktree
+    write_repo(checkout, "version: 1\n", beads="issue-prefix: pap\n")
+    assert tracker_config.get_beads_prefix(str(linked)) == "pap"
+
+
+def test_profile_prefixes_resolve_from_the_main_checkout_in_a_worktree(worktree):
+    checkout, linked = worktree
+    write_repo(checkout, _MULTI_PREFIX_CONFIG)
+    assert "vendor-sdk" in tracker_config.get_beads_prefixes(str(linked))
+
+
+def test_issue_key_recovered_from_a_worktree_with_no_config_of_its_own(worktree):
+    # The bug this fixes: the key was unrecoverable, so update-status.py fell
+    # through to its "<repo>-<branch>" fallback and wrote status under a name
+    # the sidebar never reads — "pappardelle-pap-a1b2.json" for "pap-a1b2".
+    checkout, linked = worktree
+    write_repo(checkout, "version: 1\nteam_prefix: pap\nissue_tracker:\n  provider: beads\n")
+    assert tracker_config.find_issue_key(str(linked)) == "pap-a1b2"
+
+
+def test_a_local_config_is_used_without_consulting_git(tmp_path, monkeypatch):
+    # The fallback forks git, and this runs on every tool use. The main checkout
+    # must never pay for it.
+    def fail(start=None):
+        raise AssertionError("git should not be consulted when the config is on the path")
+
+    monkeypatch.setattr(tracker_config, "get_main_repo_root", fail)
+    repo = write_repo(tmp_path, "version: 1\nissue_tracker:\n  provider: beads\n")
+    assert tracker_config.get_tracker_provider(str(repo)) == "beads"
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([os.path.abspath(__file__), "-v"]))

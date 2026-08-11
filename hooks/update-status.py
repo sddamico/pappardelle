@@ -77,6 +77,7 @@ def get_workspace_name(cwd: Optional[str] = None) -> str:
             capture_output=True,
             text=True,
             timeout=5,
+            cwd=cwd,
         )
         if branch_result.returncode == 0:
             branch = branch_result.stdout.strip()
@@ -88,6 +89,7 @@ def get_workspace_name(cwd: Optional[str] = None) -> str:
                         capture_output=True,
                         text=True,
                         timeout=5,
+                        cwd=cwd,
                     )
                     if toplevel_result.returncode == 0:
                         repo_name = os.path.basename(toplevel_result.stdout.strip())

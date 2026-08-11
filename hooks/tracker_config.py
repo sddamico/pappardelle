@@ -21,6 +21,8 @@ from typing import Optional
 
 _MAX_PARENT_WALK = 20
 
+_MAIN_REPO_ROOT_CACHE: dict[str, Optional[str]] = {}
+
 # Linear/Jira: uppercase alphabetic prefix, numeric suffix (STA-123).
 _CLASSIC_KEY_RE = re.compile(r"^[A-Z]+-\d+$")
 
@@ -89,9 +91,37 @@ def _read(path: Optional[str]) -> str:
         return ""
 
 
+def find_repo_config(filename: str, start: Optional[str] = None) -> Optional[str]:
+    """Locate a repo-level config file, resolving through linked worktrees.
+
+    `.pappardelle.yml` and `.beads/` are routinely listed in `.git/info/exclude`
+    rather than committed, so a linked worktree never receives a copy and walking
+    up from one reaches the filesystem root empty-handed. The main checkout is
+    the only place they exist, and it is reachable from anywhere inside the repo.
+
+    Walking up is still tried first: it is pure filesystem work, it answers for
+    the main checkout, and it keeps `git` out of the common path on a hook that
+    runs on every tool use.
+    """
+    try:
+        origin = start if start is not None else os.getcwd()
+    except OSError:
+        return None
+
+    found = find_up(filename, origin)
+    if found:
+        return found
+
+    main_root = get_main_repo_root(origin)
+    if not main_root or main_root == origin:
+        return None
+
+    return find_up(filename, main_root)
+
+
 def get_tracker_provider(start: Optional[str] = None) -> str:
     """Read issue_tracker.provider from .pappardelle.yml. Defaults to "linear"."""
-    match = _PROVIDER_RE.search(_read(find_up(".pappardelle.yml", start)))
+    match = _PROVIDER_RE.search(_read(find_repo_config(".pappardelle.yml", start)))
     return match.group(1).strip() if match else "linear"
 
 
@@ -103,11 +133,13 @@ def get_beads_prefix(start: Optional[str] = None) -> Optional[str]:
     trackers. Returns None when neither is set, in which case callers should
     keep the strict Linear/Jira key matching rather than guess.
     """
-    match = _BEADS_PREFIX_RE.search(_read(find_up(os.path.join(".beads", "config.yaml"), start)))
+    match = _BEADS_PREFIX_RE.search(
+        _read(find_repo_config(os.path.join(".beads", "config.yaml"), start))
+    )
     if match:
         return match.group(1).strip().lower()
 
-    match = _TEAM_PREFIX_RE.search(_read(find_up(".pappardelle.yml", start)))
+    match = _TEAM_PREFIX_RE.search(_read(find_repo_config(".pappardelle.yml", start)))
     if match:
         return match.group(1).strip().lower()
 
@@ -137,7 +169,7 @@ def get_beads_prefixes(start: Optional[str] = None) -> list[str]:
 
     add(get_beads_prefix(start))
 
-    config = _read(find_up(".pappardelle.yml", start))
+    config = _read(find_repo_config(".pappardelle.yml", start))
     for match in _PROFILE_TEAM_PREFIX_RE.finditer(config):
         add(match.group(1))
 
@@ -159,7 +191,21 @@ def get_main_repo_root(start: Optional[str] = None) -> Optional[str]:
     database. A worktree carries its own checked-out `.beads/` directory, so
     running bd from inside one makes it auto-discover that copy and write the
     comment somewhere the ticket rail never reads.
+
+    Memoized because config lookup falls back to it several times per hook
+    event — once each for the provider, the beads prefix, and the profile
+    prefixes — and each miss would otherwise fork git.
     """
+    key = start if start is not None else ""
+    if key in _MAIN_REPO_ROOT_CACHE:
+        return _MAIN_REPO_ROOT_CACHE[key]
+
+    root = _resolve_main_repo_root(start)
+    _MAIN_REPO_ROOT_CACHE[key] = root
+    return root
+
+
+def _resolve_main_repo_root(start: Optional[str]) -> Optional[str]:
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],

@@ -218,20 +218,6 @@ if (cli.input.length > 0) {
 
 	console.log(`Starting new session with: "${finalPrompt}"`);
 
-	// If the prompt resolved to an issue key (not a description), claim it before
-	// creating the workspace to prevent it from appearing in "ready" state while
-	// the workspace setup is running (useful when opening many workspaces in parallel).
-	if (normalizedIssueKey) {
-		try {
-			spawnSync('bd', ['update', normalizedIssueKey, '--claim'], {
-				stdio: 'ignore',
-				timeout: 5000,
-			});
-		} catch {
-			// Silently ignore if bd is not available or claim fails
-		}
-	}
-
 	const result = spawnSync(path.join(SCRIPTS_DIR, 'idow'), [finalPrompt], {
 		stdio: 'inherit',
 		cwd: getRepoRoot(),

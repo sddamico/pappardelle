@@ -1111,6 +1111,20 @@ export default function App({
 	const spawnSession = (pending: PendingSession) => {
 		setPendingSession(pending);
 
+		// If we know the issue key upfront (not a description route), claim it before
+		// spawning idow to prevent it from appearing in "ready" state while the
+		// workspace setup is running (useful when opening many workspaces in parallel).
+		if (pending.name) {
+			try {
+				spawnSync('bd', ['update', pending.name, '--claim'], {
+					stdio: 'ignore',
+					timeout: 5000,
+				});
+			} catch {
+				// Silently ignore if bd is not available or claim fails
+			}
+		}
+
 		const child = spawn(
 			path.join(SCRIPTS_DIR, 'idow'),
 			buildNewSessionArgs(pending.idowArg, {profileName: pending.profileName}),

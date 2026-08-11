@@ -35,6 +35,7 @@ import {
 	determineProfileForInput,
 	getBeadsPrefixes,
 	readBeadsIssuePrefix,
+	clearBeadsIssuePrefixCache,
 	matchProfilesByKeyPrefix,
 	DEFERRED_PROFILE_DISPLAY_NAME,
 } from './config.ts';
@@ -4542,6 +4543,7 @@ test('readBeadsIssuePrefix is undefined when the file or key is absent', t => {
 
 	fs.mkdirSync(path.join(dir, '.beads'));
 	fs.writeFileSync(path.join(dir, '.beads', 'config.yaml'), 'other: value\n');
+	clearBeadsIssuePrefixCache();
 	t.is(readBeadsIssuePrefix(dir), undefined);
 });
 

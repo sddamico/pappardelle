@@ -1488,9 +1488,24 @@ export function getProfileDefaultProject(profile: Profile): string | undefined {
 	return first === undefined || first === '' ? undefined : first;
 }
 
+const beadsIssuePrefixCache = new Map<string, string | undefined>();
+
 export function readBeadsIssuePrefix(repoRoot?: string): string | undefined {
+	const root = repoRoot ?? getMainRepoRoot();
+	if (beadsIssuePrefixCache.has(root)) {
+		return beadsIssuePrefixCache.get(root);
+	}
+	const result = resolveBeadsIssuePrefix(root);
+	beadsIssuePrefixCache.set(root, result);
+	return result;
+}
+
+export function clearBeadsIssuePrefixCache(): void {
+	beadsIssuePrefixCache.clear();
+}
+
+function resolveBeadsIssuePrefix(root: string): string | undefined {
 	try {
-		const root = repoRoot ?? getMainRepoRoot();
 		const raw = fs.readFileSync(
 			path.join(root, '.beads', 'config.yaml'),
 			'utf-8',

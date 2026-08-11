@@ -307,14 +307,24 @@ export class ConfigValidationError extends Error {
 // ============================================================================
 
 /**
- * Get the git repository root directory
+ * Get the git repository root directory.
+ * Uses `git rev-parse --git-common-dir` to resolve through worktrees, ensuring
+ * the main checkout's root is returned even when called from a linked worktree.
+ * This lets config files (.pappardelle.yml, .beads/) that live only in the main
+ * checkout be found and loaded correctly.
  */
 export function getRepoRoot(): string {
 	try {
-		return execSync('git rev-parse --show-toplevel', {
-			encoding: 'utf-8',
-			stdio: ['pipe', 'pipe', 'pipe'],
-		}).trim();
+		const gitCommonDir = execSync(
+			'git rev-parse --path-format=absolute --git-common-dir',
+			{
+				encoding: 'utf-8',
+				stdio: ['pipe', 'pipe', 'pipe'],
+			},
+		).trim();
+		// git-common-dir is the main .git dir (or .git file in worktrees);
+		// its parent is the repo root.
+		return path.dirname(gitCommonDir);
 	} catch {
 		throw new Error('Not in a git repository');
 	}

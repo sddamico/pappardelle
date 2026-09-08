@@ -44,14 +44,17 @@ jobs:
 
   shell-tests:
     name: Shell Tests
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Install yq
-        run: brew install yq
+        run: |
+          sudo curl -fsSL -o /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
 
       - name: Beads ID prefix matching
         run: ./scripts/test-beads-id-prefixes.sh

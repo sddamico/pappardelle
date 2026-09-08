@@ -273,11 +273,8 @@ issue_tracker:
 team_prefix: myproj
 ```
 
-Under beads: IDs stay lowercase (`myproj-a1b2`, children `myproj-a1b2.1`);
-`${ISSUE_URL}` is empty and the rail's `o` key opens `bd show` in a tmux popup;
-`tracker_projects` matches the ID prefix; and the watchlist reads `bd ready`,
-with `issue_watchlist.statuses` narrowing further (leave it empty for every
-ready issue).
+Beads IDs stay lowercase (`myproj-a1b2`, children `myproj-a1b2.1`), so any
+`tracker_projects` entry has to match that lowercase prefix.
 
 ### VCS host
 

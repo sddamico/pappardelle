@@ -4,7 +4,7 @@
 #
 # A beads suffix is a content hash, so it can be pure letters, and nothing about
 # the shape of `fix-crash` or `dark-mode` distinguishes it from a real ID. idow
-# used to route any hyphenated input to the existing-issue branch, so those
+# used to route any hyphenated input to the --issue-key branch, so those
 # descriptions died on a `bd show` lookup instead of creating an issue.
 #
 # What this exercises:

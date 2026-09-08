@@ -144,19 +144,19 @@ test('getSpaceCount includes main worktree (regression: previously filtered out)
 // ============================================================================
 
 test('buildNewSessionArgs returns only the idow arg (no --open)', t => {
-	const args = buildNewSessionArgs('STA-500', {existingIssue: false});
+	const args = buildNewSessionArgs('STA-500', {inputIsIssueKey: false});
 	t.deepEqual(args, ['STA-500']);
 });
 
 test('buildNewSessionArgs passes description as-is', t => {
 	const args = buildNewSessionArgs('add dark mode to settings', {
-		existingIssue: false,
+		inputIsIssueKey: false,
 	});
 	t.deepEqual(args, ['add dark mode to settings']);
 });
 
 test('buildNewSessionArgs does not include --resume or --open', t => {
-	const args = buildNewSessionArgs('STA-500', {existingIssue: false});
+	const args = buildNewSessionArgs('STA-500', {inputIsIssueKey: false});
 	t.false(args.includes('--resume'));
 	t.false(args.includes('--open'));
 });
@@ -168,7 +168,7 @@ test('buildNewSessionArgs does not include --resume or --open', t => {
 test('buildNewSessionArgs forwards --profile when profile name provided', t => {
 	const args = buildNewSessionArgs('upload a personal image to trotbooks', {
 		profileName: 'trotbooks',
-		existingIssue: false,
+		inputIsIssueKey: false,
 	});
 	t.deepEqual(args, [
 		'--profile',
@@ -180,7 +180,7 @@ test('buildNewSessionArgs forwards --profile when profile name provided', t => {
 test('buildNewSessionArgs omits --profile when profileName is null', t => {
 	const args = buildNewSessionArgs('add dark mode', {
 		profileName: null,
-		existingIssue: false,
+		inputIsIssueKey: false,
 	});
 	t.deepEqual(args, ['add dark mode']);
 });
@@ -188,7 +188,7 @@ test('buildNewSessionArgs omits --profile when profileName is null', t => {
 test('buildNewSessionArgs omits --profile when profileName is empty string', t => {
 	const args = buildNewSessionArgs('add dark mode', {
 		profileName: '',
-		existingIssue: false,
+		inputIsIssueKey: false,
 	});
 	t.deepEqual(args, ['add dark mode']);
 });
@@ -197,7 +197,7 @@ test('buildNewSessionArgs puts --profile before the input so idow parses it', t 
 	// idow checks $1 for --profile; the flag must come before the input.
 	const args = buildNewSessionArgs('STA-500', {
 		profileName: 'pappardelle',
-		existingIssue: false,
+		inputIsIssueKey: false,
 	});
 	t.is(args[0], '--profile');
 	t.is(args[1], 'pappardelle');
@@ -221,28 +221,28 @@ test('buildOpenWorkspaceArgs passes issue key as last arg', t => {
 
 test('buildOpenWorkspaceArgs returns exact expected args', t => {
 	const args = buildOpenWorkspaceArgs('ENG-42');
-	t.deepEqual(args, ['--resume', '--open', '--existing-issue', 'ENG-42']);
+	t.deepEqual(args, ['--resume', '--open', '--issue-key', 'ENG-42']);
 });
 
 test('buildNewSessionArgs marks tracker-supplied keys as existing issues', t => {
-	t.deepEqual(buildNewSessionArgs('pappardelle-a1b2', {existingIssue: true}), [
-		'--existing-issue',
-		'pappardelle-a1b2',
-	]);
+	t.deepEqual(
+		buildNewSessionArgs('pappardelle-a1b2', {inputIsIssueKey: true}),
+		['--issue-key', 'pappardelle-a1b2'],
+	);
 });
 
-test('buildNewSessionArgs orders --profile ahead of --existing-issue', t => {
+test('buildNewSessionArgs orders --profile ahead of --issue-key', t => {
 	t.deepEqual(
 		buildNewSessionArgs('pappardelle-a1b2', {
 			profileName: 'vendor',
-			existingIssue: true,
+			inputIsIssueKey: true,
 		}),
-		['--profile', 'vendor', '--existing-issue', 'pappardelle-a1b2'],
+		['--profile', 'vendor', '--issue-key', 'pappardelle-a1b2'],
 	);
 });
 
 test('buildNewSessionArgs leaves typed input unflagged', t => {
-	t.deepEqual(buildNewSessionArgs('add dark mode', {existingIssue: false}), [
+	t.deepEqual(buildNewSessionArgs('add dark mode', {inputIsIssueKey: false}), [
 		'add dark mode',
 	]);
 });

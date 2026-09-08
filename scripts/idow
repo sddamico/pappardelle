@@ -4,7 +4,7 @@
 #
 # A command-line tool that sets up a development workspace.
 #
-# Usage: idow [--resume] [--open] [--profile <name>] [--existing-issue] <input>
+# Usage: idow [--resume] [--open] [--profile <name>] [--issue-key <key>] <input>
 #   Input can be:
 #     - Issue key:   idow STA-123 | idow 123
 #     - Linear URL:  idow https://linear.app/stardust-labs/issue/STA-123
@@ -103,7 +103,7 @@ if [[ "$1" == "--help" || "$1" == "-h" ]]; then
     echo "  --resume          Open workspace without prompting Claude (for continuing work)"
     echo "  --open            Also open apps, links, iTerm, and run commands (skipped by default)"
     echo "  --profile <name>  Force a specific profile from .pappardelle.yml"
-    echo "  --existing-issue  Input is an issue key the caller already fetched; skip input detection"
+    echo "  --issue-key <key> Use this issue key verbatim, skipping input-type detection"
     exit 0
 fi
 
@@ -373,10 +373,12 @@ if [[ "$1" == "--profile" ]]; then
     fi
 fi
 
-# Check for --existing-issue flag
-EXISTING_ISSUE=false
-if [[ "$1" == "--existing-issue" ]]; then
-    EXISTING_ISSUE=true
+# A beads ID is a content hash, so `myproj-a1b2` and the description `fix-crash`
+# are the same shape. Callers that already hold a resolved key say so rather than
+# leaving the detection below to guess.
+INPUT_IS_ISSUE_KEY=false
+if [[ "$1" == "--issue-key" ]]; then
+    INPUT_IS_ISSUE_KEY=true
     shift
 fi
 
@@ -408,7 +410,7 @@ ISSUE_KEY=""
 DESCRIPTION=""
 IS_NEW_ISSUE=false
 
-if [[ "$EXISTING_ISSUE" == "true" ]]; then
+if [[ "$INPUT_IS_ISSUE_KEY" == "true" ]]; then
     ISSUE_KEY="$INPUT"
     log "Caller-supplied issue key: $ISSUE_KEY"
 elif [[ "$INPUT" =~ ^https://linear\.app/.*/issue/([A-Z][A-Z0-9]*-[0-9]+) ]]; then

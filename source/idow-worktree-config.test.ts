@@ -119,7 +119,7 @@ jq -n --arg worktree_path "$IDOW_TEST_WORKSPACE" '{worktree_path: $worktree_path
 				[
 					path.join(scripts, 'idow'),
 					...(open ? ['--resume', '--open'] : []),
-					'--existing-issue',
+					'--issue-key',
 					'test-abc',
 				],
 				{

@@ -34,6 +34,13 @@ GREEN='\033[0;32m'
 BOLD='\033[1m'
 RESET='\033[0m'
 
+# osascript is macOS-only; the whole test is an AppleScript harness, so there is
+# nothing left to exercise elsewhere.
+if ! command -v osascript >/dev/null 2>&1; then
+    echo "SKIP: test-session-name-encoding (no osascript — macOS only)"
+    exit 0
+fi
+
 TMPDIR_ROOT=$(mktemp -d)
 # shellcheck disable=SC2329  # invoked via trap
 cleanup() {

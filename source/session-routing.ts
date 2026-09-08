@@ -56,9 +56,10 @@ export interface PendingSession {
 	profileName?: string | null;
 	/**
 	 * The key came from the tracker (watchlist poll, ready-work picker) rather
-	 * than from something the user typed.
+	 * than from something the user typed, so idow takes it verbatim instead of
+	 * running its own input-type detection.
 	 */
-	existingIssue: boolean;
+	inputIsIssueKey: boolean;
 	/**
 	 * Emoji slot for the pending row (left of the Claude status icon).
 	 * Mirrors the emoji-rail behavior of real rows so the Claude thinking
@@ -103,11 +104,11 @@ export function getSpaceCount(
  */
 export function buildNewSessionArgs(
 	idowArg: string,
-	opts: {profileName?: string | null; existingIssue: boolean},
+	opts: {profileName?: string | null; inputIsIssueKey: boolean},
 ): string[] {
 	const args: string[] = [];
 	if (opts.profileName) args.push('--profile', opts.profileName);
-	if (opts.existingIssue) args.push('--existing-issue');
+	if (opts.inputIsIssueKey) args.push('--issue-key');
 	args.push(idowArg);
 	return args;
 }
@@ -117,7 +118,7 @@ export function buildNewSessionArgs(
  * Uses --resume (no Claude prompt) + --open (enable open steps).
  */
 export function buildOpenWorkspaceArgs(issueKey: string): string[] {
-	return ['--resume', '--open', '--existing-issue', issueKey];
+	return ['--resume', '--open', '--issue-key', issueKey];
 }
 
 export function isPendingSessionResolved(

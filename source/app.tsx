@@ -1158,7 +1158,7 @@ export default function App({
 	const spawnSession = (pending: PendingSession) => {
 		setPendingSession(pending);
 
-		if (pending.name && pending.existingIssue) {
+		if (pending.name && pending.inputIsIssueKey) {
 			claimIssueInBackground(pending.name);
 		}
 
@@ -1166,7 +1166,7 @@ export default function App({
 			path.join(SCRIPTS_DIR, 'idow'),
 			buildNewSessionArgs(pending.idowArg, {
 				profileName: pending.profileName,
-				existingIssue: pending.existingIssue,
+				inputIsIssueKey: pending.inputIsIssueKey,
 			}),
 			{
 				detached: true,
@@ -1303,7 +1303,7 @@ export default function App({
 							type: 'issue',
 							name: issue.identifier,
 							idowArg: issue.identifier,
-							existingIssue: true,
+							inputIsIssueKey: true,
 							pendingTitle: `Watchlist: ${issue.title}`,
 							prevSpaceCount: spacesLengthRef.current,
 							// Force the owning profile so idow runs the right
@@ -1663,7 +1663,7 @@ export default function App({
 	const handleNewSession = (
 		input: string,
 		profileName: string | null,
-		existingIssue: boolean,
+		inputIsIssueKey: boolean,
 	) => {
 		setShowPromptDialog(false);
 
@@ -1677,7 +1677,7 @@ export default function App({
 		}
 
 		const teamPrefix = config ? getTeamPrefix(config) : 'STA';
-		const normalizedIssueKey = existingIssue
+		const normalizedIssueKey = inputIsIssueKey
 			? input.trim()
 			: normalizeIssueIdentifier(
 					input,
@@ -1693,7 +1693,7 @@ export default function App({
 			type: route.type,
 			name: route.issueKey ?? '',
 			idowArg: route.issueKey ?? input,
-			existingIssue,
+			inputIsIssueKey,
 			pendingTitle: route.pendingTitle,
 			prevSpaceCount: spaces.length,
 			profileName,

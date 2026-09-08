@@ -46,7 +46,7 @@ interface Props {
 	onSubmit: (
 		prompt: string,
 		profileName: string | null,
-		existingIssue: boolean,
+		inputIsIssueKey: boolean,
 	) => void;
 	onCancel: () => void;
 	/**

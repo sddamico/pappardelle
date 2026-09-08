@@ -77,7 +77,7 @@ Options:
 - **Linear** (default) — requires `linctl` CLI
 - **Jira** — requires `acli` CLI. If selected, follow up asking for their Jira base URL (e.g., `https://mycompany.atlassian.net`).
 - **Beads** — requires the `bd` CLI and a `.beads` database in the repo (`bd init <prefix>`). Local and git-native, so there is no base URL to ask for. Use the database's issue prefix as the team prefix in the next step.
-- **Neither / Other** — Pappardelle requires Linear, Jira or beads. Let the user know and stop.
+- **None of these / Other** — Pappardelle requires Linear, Jira or beads. Let the user know and stop.
 
 #### 1A.iii. Team Prefix & Profiles
 

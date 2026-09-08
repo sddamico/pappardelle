@@ -29,7 +29,7 @@ const fixedShortcuts = [
 	{key: 'k / ↑', description: 'Move up'},
 	{key: 'Enter', description: 'Focus Claude pane'},
 	{key: 'n', description: 'New space'},
-	{key: 'Del', description: 'Close space'},
+	{key: 'x / Del', description: 'Close space'},
 	{key: '/', description: 'Search spaces'},
 	{key: 'U', description: 'Update to latest release'},
 	{key: 'q', description: 'Quit'},

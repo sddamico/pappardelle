@@ -161,9 +161,7 @@ def post_comment(issue_key: str, body: str) -> bool:
     if provider == "beads":
         tmp_path = None
         try:
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".md", prefix="pappardelle-comment-", delete=False
-            ) as f:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".md", prefix="pappardelle-comment-", delete=False) as f:
                 tmp_path = f.name
                 f.write(body)
             cmd = ["bd"]

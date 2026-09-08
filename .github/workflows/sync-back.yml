@@ -56,8 +56,25 @@ jobs:
           AUTHOR_NAME=$(gh api /repos/${{ github.repository }}/commits/$HEAD_SHA --jq '.commit.author.name')
           AUTHOR_EMAIL=$(gh api /repos/${{ github.repository }}/commits/$HEAD_SHA --jq '.commit.author.email')
 
-          # Get the PR diff
-          gh pr diff "$PR_NUMBER" > /tmp/pr.diff
+          # Get the PR diff as a raw unified patch.
+          #
+          # This deliberately uses curl rather than any `gh` subcommand. `gh`
+          # guards its own output: it renders a decorated diff that `git apply`
+          # cannot read, and it refuses to print at all, with a non-zero exit,
+          # when the payload holds terminal escape codes. That is what broke
+          # the sync-back of chardigio/pappardelle#18 (v2.4.2) and left the
+          # monorepo a whole release behind; see STA-2275. `gh` has since grown
+          # an `--allow-escape-sequences` opt-out, but only on some subcommands
+          # and only in recent versions, so depending on it would swap one
+          # version-sensitive failure for another. curl has no such guard on
+          # any version, and the diff media type always returns a plain
+          # `git apply`-compatible patch.
+          curl -fsSL \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header 'Accept: application/vnd.github.v3.diff' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${{ github.repository }}/pulls/$PR_NUMBER" \
+            -o /tmp/pr.diff
 
           if [ ! -s /tmp/pr.diff ]; then
             echo "Empty diff, nothing to sync"

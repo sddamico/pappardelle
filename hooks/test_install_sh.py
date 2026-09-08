@@ -17,11 +17,7 @@ def sibling_modules(source: str) -> set[str]:
 
 
 def test_installer_copies_every_sibling_module_the_hooks_import():
-    entrypoints = [
-        p
-        for p in HOOKS_DIR.glob("*.py")
-        if not p.name.startswith("test_") and "-" in p.name
-    ]
+    entrypoints = [p for p in HOOKS_DIR.glob("*.py") if not p.name.startswith("test_") and "-" in p.name]
     assert entrypoints, "no hook entrypoints found"
 
     missing = {

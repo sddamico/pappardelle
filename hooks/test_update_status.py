@@ -217,9 +217,7 @@ class TestGetWorkspaceName:
 
         checkout = tmp_path / "checkout"
         checkout.mkdir()
-        (checkout / ".pappardelle.yml").write_text(
-            "version: 1\nteam_prefix: pap\nissue_tracker:\n  provider: beads\n"
-        )
+        (checkout / ".pappardelle.yml").write_text("version: 1\nteam_prefix: pap\nissue_tracker:\n  provider: beads\n")
         linked = tmp_path / "worktrees" / "pap-a1b2"
         linked.mkdir(parents=True)
 

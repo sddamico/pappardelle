@@ -14,12 +14,8 @@ _MAIN_REPO_ROOT_CACHE: dict[str, Optional[str]] = {}
 _CLASSIC_KEY_RE = re.compile(r"^[A-Z]+-\d+$")
 
 _PROVIDER_RE = re.compile(r"issue_tracker:\s*\n(?:\s*#[^\n]*\n)*\s+provider:\s*(\w+)")
-_TEAM_PREFIX_RE = re.compile(
-    r"^team_prefix:[ \t]*[\"']?([A-Za-z0-9_-]+)[\"']?[ \t]*(?:#[^\n]*)?$", re.MULTILINE
-)
-_BEADS_PREFIX_RE = re.compile(
-    r"^issue-prefix:[ \t]*[\"']?([A-Za-z0-9_-]+)[\"']?[ \t]*(?:#[^\n]*)?$", re.MULTILINE
-)
+_TEAM_PREFIX_RE = re.compile(r"^team_prefix:[ \t]*[\"']?([A-Za-z0-9_-]+)[\"']?[ \t]*(?:#[^\n]*)?$", re.MULTILINE)
+_BEADS_PREFIX_RE = re.compile(r"^issue-prefix:[ \t]*[\"']?([A-Za-z0-9_-]+)[\"']?[ \t]*(?:#[^\n]*)?$", re.MULTILINE)
 
 # Per-profile prefix sources, which are indented and therefore missed by the
 # anchored top-level patterns above. `tracker_projects` entries name beads ID
@@ -34,9 +30,7 @@ _TRACKER_PROJECTS_BLOCK_RE = re.compile(
 # The flow-sequence spelling of the same list. YAML accepts both, config.ts goes
 # through a real parser and so accepts both, and a hook that understood only the
 # block form left those workspaces unmatched.
-_TRACKER_PROJECTS_INLINE_RE = re.compile(
-    r"^[ \t]+tracker_projects:[ \t]*\[([^\]\n]*)\]", re.MULTILINE
-)
+_TRACKER_PROJECTS_INLINE_RE = re.compile(r"^[ \t]+tracker_projects:[ \t]*\[([^\]\n]*)\]", re.MULTILINE)
 _LIST_ITEM_RE = re.compile(r"^[ \t]*-[ \t]*([^\n]*)$", re.MULTILINE)
 _TRAILING_COMMENT_RE = re.compile(r"(?:^|\s)#.*$")
 
@@ -127,9 +121,7 @@ def get_beads_prefix(start: Optional[str] = None) -> Optional[str]:
     trackers. Returns None when neither is set, in which case callers should
     keep the strict Linear/Jira key matching rather than guess.
     """
-    match = _BEADS_PREFIX_RE.search(
-        _read(find_repo_config(os.path.join(".beads", "config.yaml"), start))
-    )
+    match = _BEADS_PREFIX_RE.search(_read(find_repo_config(os.path.join(".beads", "config.yaml"), start)))
     if match:
         return match.group(1).strip().lower()
 
@@ -174,8 +166,11 @@ def get_beads_prefixes(start: Optional[str] = None) -> list[str]:
             add(_scalar(item.group(1)))
 
     for inline in _TRACKER_PROJECTS_INLINE_RE.finditer(config):
-        for item in inline.group(1).split(","):
-            add(_scalar(item))
+        # Named `piece` rather than reusing `item` above: the block-form loop
+        # binds `item` to a Match, so a second binding to a str makes mypy
+        # report an incompatible assignment.
+        for piece in inline.group(1).split(","):
+            add(_scalar(piece))
 
     return prefixes
 
@@ -244,11 +239,7 @@ def _key_candidates(cwd: str) -> list[tuple[str, str]]:
     repo directory and filed status and comments against a nonexistent issue.
     """
     segments = cwd.split("/")
-    return [
-        ("/".join(segments[: i + 1]), segments[i])
-        for i in reversed(range(len(segments)))
-        if "-" in segments[i]
-    ]
+    return [("/".join(segments[: i + 1]), segments[i]) for i in reversed(range(len(segments))) if "-" in segments[i]]
 
 
 def _find_beads_key(candidates: list[tuple[str, str]], cwd: str) -> Optional[str]:

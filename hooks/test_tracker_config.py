@@ -121,8 +121,7 @@ def test_beads_prefixes_collects_every_configured_source(tmp_path):
 def test_beads_prefixes_reads_an_inline_tracker_projects_list(tmp_path):
     repo = write_repo(
         tmp_path,
-        "version: 1\nteam_prefix: myproj\nprofiles:\n"
-        "  vendor:\n    tracker_projects: [vendor-sdk, 'Other-Thing']\n",
+        "version: 1\nteam_prefix: myproj\nprofiles:\n" "  vendor:\n    tracker_projects: [vendor-sdk, 'Other-Thing']\n",
     )
     assert sorted(tracker_config.get_beads_prefixes(str(repo))) == [
         "myproj",
@@ -359,9 +358,7 @@ def test_injected_main_repo_root_does_not_answer_for_another_directory(monkeypat
     # workspace whose root was injected.
     monkeypatch.setattr(tracker_config, "_MAIN_REPO_ROOT_CACHE", {})
     monkeypatch.setenv("PAPPARDELLE_MAIN_REPO_ROOT", "/tmp/main-checkout")
-    monkeypatch.setattr(
-        tracker_config, "_resolve_main_repo_root", lambda start: "/tmp/elsewhere"
-    )
+    monkeypatch.setattr(tracker_config, "_resolve_main_repo_root", lambda start: "/tmp/elsewhere")
     assert tracker_config.get_main_repo_root("/tmp/elsewhere") == "/tmp/elsewhere"
 
 

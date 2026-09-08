@@ -273,9 +273,6 @@ issue_tracker:
 team_prefix: myproj
 ```
 
-Beads IDs stay lowercase (`myproj-a1b2`, children `myproj-a1b2.1`), so any
-`tracker_projects` entry has to match that lowercase prefix.
-
 ### VCS host
 
 ```yaml

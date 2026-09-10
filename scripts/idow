@@ -136,7 +136,11 @@ resolve_repo_config() {
     fi
 }
 
-CONFIG_PATH=$(resolve_repo_config .pappardelle.yml)
+# The committed project layer. CONFIG_PATH is repointed at the merged
+# home -> project -> local document once the helpers are loaded; every yq
+# read below that point goes through the merged file.
+PROJECT_CONFIG_PATH=$(resolve_repo_config .pappardelle.yml)
+CONFIG_PATH="$PROJECT_CONFIG_PATH"
 # Personal defaults shared across every repo. Must stay in step with
 # getDefaultHomeConfigDir() in source/config.ts, which is what the TUI reads.
 HOME_CONFIG_PATH="$HOME/.pappardelle/.pappardelle.yml"
@@ -174,7 +178,7 @@ fi
 # These are the top-level values; once a profile is selected, the launch flags
 # are re-resolved profile-first via resolve_claude_launch_flags below.
 LOCAL_CONFIG_PATH=$(resolve_repo_config .pappardelle.local.yml)
-CLAUDE_CONFIG_JSON=$("$SCRIPT_DIR/resolve-claude-config.sh" --config "$CONFIG_PATH" --local-config "$LOCAL_CONFIG_PATH" --home-config "$HOME_CONFIG_PATH")
+CLAUDE_CONFIG_JSON=$("$SCRIPT_DIR/resolve-claude-config.sh" --config "$PROJECT_CONFIG_PATH" --local-config "$LOCAL_CONFIG_PATH" --home-config "$HOME_CONFIG_PATH")
 INIT_CMD=$(echo "$CLAUDE_CONFIG_JSON" | jq -r '.init_cmd')
 SKIP_PERMISSIONS=$(echo "$CLAUDE_CONFIG_JSON" | jq -r '.skip_permissions')
 CLAUDE_MODEL=$(echo "$CLAUDE_CONFIG_JSON" | jq -r '.model')
@@ -189,7 +193,7 @@ CLAUDE_EFFORT=$(echo "$CLAUDE_CONFIG_JSON" | jq -r '.effort')
 resolve_claude_launch_flags() {
     local profile="$1"
     local json
-    json=$("$SCRIPT_DIR/resolve-claude-config.sh" --config "$CONFIG_PATH" --local-config "$LOCAL_CONFIG_PATH" --home-config "$HOME_CONFIG_PATH" --profile "$profile")
+    json=$("$SCRIPT_DIR/resolve-claude-config.sh" --config "$PROJECT_CONFIG_PATH" --local-config "$LOCAL_CONFIG_PATH" --home-config "$HOME_CONFIG_PATH" --profile "$profile")
     CLAUDE_MODEL=$(echo "$json" | jq -r '.model')
     CLAUDE_EFFORT=$(echo "$json" | jq -r '.effort')
     [[ -n "$CLAUDE_MODEL" ]] && log "Claude model: $CLAUDE_MODEL"
@@ -200,6 +204,14 @@ resolve_claude_launch_flags() {
 # Source provider-agnostic helpers
 # shellcheck source=provider-helpers.sh
 source "$SCRIPT_DIR/provider-helpers.sh"
+
+# From here on, read the merged config so home and local layers apply to
+# every field (profiles, team_prefix, providers, apps, links, hooks, ...),
+# not only the Claude settings that resolve-claude-config.sh layers itself.
+MERGED_CONFIG_PATH=$(mktemp -t pappardelle-config.XXXXXX)
+trap 'rm -f "$MERGED_CONFIG_PATH"' EXIT
+merge_config_layers "$HOME_CONFIG_PATH" "$PROJECT_CONFIG_PATH" "$LOCAL_CONFIG_PATH" > "$MERGED_CONFIG_PATH"
+CONFIG_PATH="$MERGED_CONFIG_PATH"
 
 # Detect configured providers
 TRACKER_PROVIDER=$(get_issue_tracker_provider "$CONFIG_PATH")
@@ -765,10 +777,10 @@ else
     print_success "No PR/MR yet (the agent opens one at its first real commit)"
 fi
 
-# Resolve the companion-pane command across all config layers (home → project
-# → local), per-profile override → top-level → gitui default. Reading only the
-# project file here used to skip a home-config default entirely.
-COMPANION_COMMAND=$("$SCRIPT_DIR/resolve-claude-config.sh" --config "$CONFIG_PATH" --local-config "$LOCAL_CONFIG_PATH" --home-config "$HOME_CONFIG_PATH" --profile "$SELECTED_PROFILE" | jq -r '.companion_command')
+# Resolve the companion-pane command: per-profile override → top-level → gitui
+# default, over the merged config layers. Mirrors getCompanionCommand() in
+# config.ts; the empty-string-means-plain-shell rule lives in the resolver.
+COMPANION_COMMAND=$("$SCRIPT_DIR/resolve-claude-config.sh" --config "$PROJECT_CONFIG_PATH" --local-config "$LOCAL_CONFIG_PATH" --home-config "$HOME_CONFIG_PATH" --profile "$SELECTED_PROFILE" | jq -r '.companion_command')
 
 # Step 7: Ensure Claude and companion tmux sessions exist (always, regardless of --open)
 print_step 7 "Starting Claude tmux session..."

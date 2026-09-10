@@ -765,10 +765,10 @@ else
     print_success "No PR/MR yet (the agent opens one at its first real commit)"
 fi
 
-# Resolve the companion-pane command: per-profile override → top-level → gitui
-# default. yq's // keeps an explicit empty string ("plain shell") and only falls
-# through on a missing/null key. Mirrors getCompanionCommand() in config.ts.
-COMPANION_COMMAND=$(yq -r "(.profiles.$SELECTED_PROFILE.companion_command // .companion_command) // \"GIT_OPTIONAL_LOCKS=0 gitui\"" "$CONFIG_PATH" 2>/dev/null)
+# Resolve the companion-pane command across all config layers (home → project
+# → local), per-profile override → top-level → gitui default. Reading only the
+# project file here used to skip a home-config default entirely.
+COMPANION_COMMAND=$("$SCRIPT_DIR/resolve-claude-config.sh" --config "$CONFIG_PATH" --local-config "$LOCAL_CONFIG_PATH" --home-config "$HOME_CONFIG_PATH" --profile "$SELECTED_PROFILE" | jq -r '.companion_command')
 
 # Step 7: Ensure Claude and companion tmux sessions exist (always, regardless of --open)
 print_step 7 "Starting Claude tmux session..."

@@ -136,9 +136,6 @@ resolve_repo_config() {
     fi
 }
 
-# The committed project layer. CONFIG_PATH is repointed at the merged
-# home -> project -> local document once the helpers are loaded; every yq
-# read below that point goes through the merged file.
 PROJECT_CONFIG_PATH=$(resolve_repo_config .pappardelle.yml)
 CONFIG_PATH="$PROJECT_CONFIG_PATH"
 # Personal defaults shared across every repo. Must stay in step with

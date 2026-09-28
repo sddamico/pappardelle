@@ -198,6 +198,15 @@ function shellQuote(value: string): string {
 }
 
 /**
+ * Argv that runs `command` as a tmux pane's process instead of typing it at a
+ * prompt, so it never lands in the user's shell history (pappardelle-2i0).
+ */
+export function buildShellLaunchArgs(command: string): string[] {
+	const shell = process.env['SHELL'] || '/bin/sh';
+	return ['/bin/sh', '-c', '"$1" -ic "$2"; exec "$1" -l', 'sh', shell, command];
+}
+
+/**
  * Pass-through flags resolved from the `claude:` config block (top-level or
  * per-profile). An empty/absent value means "don't pass the flag at all", which
  * is what keeps the launch command byte-identical for configs that never
@@ -791,17 +800,41 @@ export function sendToPane(paneId: string, command: string): boolean {
 }
 
 /**
- * Send Ctrl+C to interrupt any running process in a pane
+ * Replace whatever runs in a viewer pane with `command`, followed by a login
+ * shell. Starting it as the pane's process rather than typing it keeps it out
+ * of the user's shell history (pappardelle-2i0). `-k` kills the previous
+ * process, including any nested client attached there.
+ *
+ * Respawning allocates a new pty, so the cached viewer TTY for this pane is
+ * refreshed; otherwise the switch-client fast path would look for its client
+ * on a tty that no longer exists.
  */
-function interruptPane(paneId: string): void {
-	try {
-		spawnSync('tmux', ['send-keys', '-t', paneId, 'C-c'], {
-			encoding: 'utf-8',
-			timeout: 5000,
-		});
-	} catch {
-		// Ignore errors
+function respawnViewerPane(paneId: string, command: string): boolean {
+	const oldTty = getPaneTty(paneId);
+	const result = spawnSync(
+		'tmux',
+		['respawn-pane', '-k', '-t', paneId, `${command}; exec "$SHELL" -l`],
+		{encoding: 'utf-8', timeout: 5000},
+	);
+	if (result.error || result.status !== 0) {
+		log.error(`Failed to respawn pane ${paneId}: ${result.stderr}`);
+		return false;
 	}
+
+	const newTty = getPaneTty(paneId);
+	if (oldTty && oldTty === claudeViewerTty) {
+		claudeViewerTty = newTty;
+		claudeViewerHasClient = false;
+	}
+	if (oldTty && oldTty === companionViewerTty) {
+		companionViewerTty = newTty;
+		companionViewerHasClient = false;
+	}
+	return true;
+}
+
+function viewerMessageCommand(message: string): string {
+	return message ? `clear; printf '%s\\n' ${shellQuote(message)}` : 'clear';
 }
 
 /**
@@ -1231,11 +1264,8 @@ export function setupPappardellLayout(): {
  * Attach viewer panes to a space's sessions
  *
  * Uses tmux switch-client for instant, invisible session switching when a nested
- * client already exists in the viewer pane. Falls back to send-keys attach for
- * the initial attachment.
- *
- * This avoids the visible attach command being typed into the pane, which was
- * jarring when rapidly navigating through spaces.
+ * client already exists in the viewer pane. Falls back to respawning the pane
+ * with an attach command for the initial attachment.
  */
 export function attachToSpace(
 	claudeViewerPaneId: string,
@@ -1312,23 +1342,19 @@ export function attachToSpace(
 				// distinct tmux server, so tmux's nesting check can't fire and we
 				// don't need to clobber $TMUX — which is the whole point of STA-860
 				// (lets $TMUX propagate to Claude Code's Agent Teams feature).
-				sendToPane(
+				respawnViewerPane(
 					claudeViewerPaneId,
-					`tmux -L ${INNER_SOCKET} attach -t "${sessions.claude}"`,
+					`tmux -L ${INNER_SOCKET} attach -t ${shellQuote(sessions.claude)}`,
 				);
 				claudeViewerHasClient = true;
-				log.info(`Attached claude viewer to ${sessions.claude} via send-keys`);
+				log.info(`Attached claude viewer to ${sessions.claude} via respawn`);
 			}
 		} else {
-			// No session - show message (need to detach first if we have a client)
-			if (claudeViewerHasClient && claudeViewerTty) {
-				detachInPane(claudeViewerPaneId);
-				claudeViewerHasClient = false;
-			}
-			sendToPane(
+			respawnViewerPane(
 				claudeViewerPaneId,
-				`clear && echo "No claude session for ${issueKey}"`,
+				viewerMessageCommand(`No claude session for ${issueKey}`),
 			);
+			claudeViewerHasClient = false;
 		}
 
 		// Handle companion viewer pane (only if we have one - may not exist on narrow screens)
@@ -1346,25 +1372,21 @@ export function attachToSpace(
 					);
 				} else {
 					// Slow path: create a new nested client on the inner socket.
-					sendToPane(
+					respawnViewerPane(
 						companionViewerPaneId,
-						`tmux -L ${INNER_SOCKET} attach -t "${sessions.companion}"`,
+						`tmux -L ${INNER_SOCKET} attach -t ${shellQuote(sessions.companion)}`,
 					);
 					companionViewerHasClient = true;
 					log.info(
-						`Attached companion viewer to ${sessions.companion} via send-keys`,
+						`Attached companion viewer to ${sessions.companion} via respawn`,
 					);
 				}
 			} else {
-				// No session - show message
-				if (companionViewerHasClient && companionViewerTty) {
-					detachInPane(companionViewerPaneId);
-					companionViewerHasClient = false;
-				}
-				sendToPane(
+				respawnViewerPane(
 					companionViewerPaneId,
-					`clear && echo "No companion session for ${issueKey}"`,
+					viewerMessageCommand(`No companion session for ${issueKey}`),
 				);
+				companionViewerHasClient = false;
 			}
 		} else {
 			companionViewerHasClient = false;
@@ -1393,17 +1415,9 @@ export function attachToSpace(
  * Display a message in a pane (for empty state)
  */
 export function displayMessageInPane(paneId: string, message: string): boolean {
-	try {
-		interruptPane(paneId);
-		if (message) {
-			sendToPane(paneId, `echo "${message}"`);
-		} else {
-			sendToPane(paneId, 'clear');
-		}
-		return true;
-	} catch {
-		return false;
-	}
+	// The companion viewer does not exist in the vertical layout.
+	if (!paneId) return false;
+	return respawnViewerPane(paneId, viewerMessageCommand(message));
 }
 
 /**
@@ -1941,8 +1955,8 @@ export function pretrustDirectoryForClaude(
  * Create a claude session for an issue if it doesn't exist
  * Returns true if session exists or was created successfully
  *
- * Creates a shell-based session (not running claude directly) so the session
- * persists even if claude exits.
+ * The session outlives claude: a login shell takes over the pane when claude
+ * exits (see buildShellLaunchArgs).
  */
 export function ensureClaudeSession(
 	issueKey: string,
@@ -1976,6 +1990,9 @@ export function ensureClaudeSession(
 				sessionName,
 				'-c',
 				worktreePath,
+				...buildShellLaunchArgs(
+					buildClaudeResumeCommand(issueKey, skipPermissions, launch),
+				),
 			]),
 			{encoding: 'utf-8', timeout: 10000},
 		);
@@ -1984,19 +2001,6 @@ export function ensureClaudeSession(
 			log.error(`Failed to create claude session: ${result.stderr}`);
 			return false;
 		}
-
-		// Send claude command to the session. Try --continue first to resume an
-		// existing conversation, falling back to bare claude if none exists.
-		const fullCmd = buildClaudeResumeCommand(issueKey, skipPermissions, launch);
-
-		spawnSync(
-			'tmux',
-			innerTmuxArgs(['send-keys', '-t', sessionName, fullCmd, 'Enter']),
-			{
-				encoding: 'utf-8',
-				timeout: 5000,
-			},
-		);
 
 		log.info(`Created claude session: ${sessionName}`);
 		return true;
@@ -2013,9 +2017,8 @@ export function ensureClaudeSession(
  * Create a companion session for an issue if it doesn't exist
  * Returns true if session exists or was created successfully
  *
- * Creates a shell-based session (not running the companion command directly) so
- * the session persists even if that command exits. This matches how claude
- * sessions work.
+ * Like claude sessions, a login shell takes over the pane when the command
+ * exits.
  *
  * `companionCommand` is the shell command run in the pane — defaults to gitui
  * (see DEFAULT_COMPANION_COMMAND) and is overridable via the `companion_command`
@@ -2042,8 +2045,14 @@ export function ensureCompanionSession(
 	}
 
 	try {
-		// Detached shell-based session (not running the companion command directly)
-		// so it persists even if that command exits.
+		// An empty command means "leave a plain shell". The default command
+		// carries GIT_OPTIONAL_LOCKS=0, which keeps the git UI from acquiring
+		// locks for read-only ops like `git status`, avoiding contention with
+		// Claude's concurrent git calls. Custom commands run verbatim.
+		const launchArgs =
+			companionCommand.trim() === ''
+				? []
+				: buildShellLaunchArgs(companionCommand);
 		const result = spawnSync(
 			'tmux',
 			innerTmuxArgs([
@@ -2053,6 +2062,7 @@ export function ensureCompanionSession(
 				sessionName,
 				'-c',
 				worktreePath,
+				...launchArgs,
 			]),
 			{encoding: 'utf-8', timeout: 10000},
 		);
@@ -2060,29 +2070,6 @@ export function ensureCompanionSession(
 		if (result.error || result.status !== 0) {
 			log.error(`Failed to create companion session: ${result.stderr}`);
 			return false;
-		}
-
-		// An empty command means "leave a plain shell" — create the session but
-		// don't launch anything into it.
-		if (companionCommand.trim() !== '') {
-			// The default command carries GIT_OPTIONAL_LOCKS=0, which keeps the git
-			// UI from acquiring locks for read-only ops like `git status`, avoiding
-			// contention with Claude's concurrent git calls. Custom commands run
-			// verbatim.
-			spawnSync(
-				'tmux',
-				innerTmuxArgs([
-					'send-keys',
-					'-t',
-					sessionName,
-					companionCommand,
-					'Enter',
-				]),
-				{
-					encoding: 'utf-8',
-					timeout: 5000,
-				},
-			);
 		}
 
 		log.info(`Created companion session: ${sessionName}`);

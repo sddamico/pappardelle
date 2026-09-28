@@ -48,3 +48,13 @@ export function normalizeIssueIdentifier(
 	// Not an issue identifier
 	return null;
 }
+
+/**
+ * Resolve what a user typed into the key a space is registered under.
+ * Tracker keys and bare numbers normalize like `normalizeIssueIdentifier`;
+ * anything else (beads keys like `sausage-race-agc.17`) is kept as typed,
+ * since those keys are lowercase and uppercasing them would miss the space.
+ */
+export function resolveSpaceKey(input: string, teamPrefix: string): string {
+	return normalizeIssueIdentifier(input, teamPrefix) ?? input.trim();
+}

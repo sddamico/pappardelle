@@ -1,7 +1,8 @@
 import widestLine from 'widest-line';
 import {buildHelpRows} from '../components/help-rows.ts';
 import {formatVersionLine} from '../help-version-line.ts';
-import type {PopupSpec} from './protocol.ts';
+import {closeSpaceContent} from '../close-state-choice.ts';
+import type {ConfirmPopupProps, PopupSpec} from './protocol.ts';
 
 export type ClientSize = {cols: number; rows: number};
 export type PopupSize = {width: number; height: number};
@@ -12,6 +13,7 @@ const HORIZONTAL_CHROME = 6;
 // Border (1 each side) plus paddingY={1}.
 const VERTICAL_CHROME = 4;
 const CONFIRM_HINT = 'Press y or Enter to confirm, n or Esc to cancel';
+const CLOSE_SPACE_HINT = '←/→ change state · y/Enter confirm · n/Esc cancel';
 const HELP_FOOTER = 'Press Esc, Enter, or ? to close';
 
 /**
@@ -59,20 +61,41 @@ function fraction(client: ClientSize): PopupSize {
 	};
 }
 
+function confirmHeight(
+	{title, message, detail}: ConfirmPopupProps,
+	inner: number,
+	hint: string,
+): number {
+	return (
+		VERTICAL_CHROME +
+		wrappedLineCount(title, inner) +
+		1 +
+		wrappedLineCount(message, inner) +
+		1 +
+		(detail ? wrappedLineCount(detail, inner) + 1 : 0) +
+		wrappedLineCount(hint, inner)
+	);
+}
+
 export function popupSize(spec: PopupSpec, client: ClientSize): PopupSize {
 	switch (spec.kind) {
 		case 'confirm': {
 			const width = Math.min(CONFIRM_MAX_WIDTH, client.cols - 4);
 			const inner = width - HORIZONTAL_CHROME;
-			const {title, message, detail} = spec.props;
+			const height = confirmHeight(spec.props, inner, CONFIRM_HINT);
+			return clamp({width, height}, client);
+		}
+
+		case 'close-space': {
+			const width = Math.min(CONFIRM_MAX_WIDTH, client.cols - 4);
+			const inner = width - HORIZONTAL_CHROME;
+			const content = closeSpaceContent(spec.props.spaceName);
+			// The tracker's ability to pick a state is only known inside the
+			// popup, so it is sized for the state row and its margin either way.
 			const height =
-				VERTICAL_CHROME +
-				wrappedLineCount(title, inner) +
-				1 +
-				wrappedLineCount(message, inner) +
-				1 +
-				(detail ? wrappedLineCount(detail, inner) + 1 : 0) +
-				wrappedLineCount(CONFIRM_HINT, inner);
+				confirmHeight(content, inner, CLOSE_SPACE_HINT) +
+				// The state row is truncated to one line, plus its margin.
+				2;
 			return clamp({width, height}, client);
 		}
 
